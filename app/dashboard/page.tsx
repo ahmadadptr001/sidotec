@@ -14,21 +14,13 @@ import {
   ArcElement,
 } from "chart.js";
 import { Line, Doughnut } from "react-chartjs-2";
-import {
-  Inbox,
-  Send,
-  Calendar,
-  ArrowUpRight,
-  Clock,
-  FileText,
-  Users,
-  ChevronRight,
-} from "lucide-react";
-import { useState, useEffect } from "react";
-import { session, ambildataUser } from "@/services/user";
+import { ArrowUpRight, Clock, FileText, Users, ChevronRight } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { jumlahPengguna } from "@/services/user";
 import { ambilDataSurat, ambilDataDisposisi } from "@/services/surat";
+import { formatTanggalIndonesia, formatTanggalLokal, parseTanggal } from "@/lib/format";
+import { KATEGORI_SURAT } from "@/lib/tabel";
 
-// Registrasi komponen ChartJS
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -58,12 +50,8 @@ interface Disposisi {
   deadline: string;
 }
 
-interface User {
-  id: string;
-  username: string;
-  nama_lengkap: string;
-  role: string;
-}
+const WARNA_KATEGORI = ["#059669", "#3b82f6", "#f59e0b", "#64748b", "#8b5cf6"];
+const NAMA_HARI = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
 
 export default function DashboardPage() {
   const [suratMasuk, setSuratMasuk] = useState<Surat[]>([]);
@@ -72,120 +60,141 @@ export default function DashboardPage() {
   const [totalUsers, setTotalUsers] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  // Fetch data dari API
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
 
-      // Fetch surat masuk dan keluar
-      const [masuk, keluar, disp, users] = await Promise.all([
-        ambilDataSurat("masuk", 100),
-        ambilDataSurat("keluar", 100),
+      // Tanpa batas 100 per jenis, sehingga kartu statistik tidak berhenti
+      // bertambah setelah arsip melewati angka itu.
+      const [masuk, keluar, disp, totalPengguna] = await Promise.all([
+        ambilDataSurat("masuk"),
+        ambilDataSurat("keluar"),
         ambilDataDisposisi(),
-        ambildataUser(),
+        jumlahPengguna(),
       ]);
 
-      setSuratMasuk(masuk?.data || []);
-      setSuratKeluar(keluar?.data || []);
-      setDisposisi(disp?.data || []);
-      setTotalUsers(users?.data?.length || 0);
+      setSuratMasuk(masuk?.data ?? []);
+      setSuratKeluar(keluar?.data ?? []);
+      setDisposisi(disp?.data ?? []);
+      setTotalUsers(totalPengguna);
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
     } finally {
       setLoading(false);
     }
-  };
-
-  // Hitung kategori dari semua surat
-  const calculateCategoryDistribution = () => {
-    const allLetters = [...suratMasuk, ...suratKeluar];
-    const categoryCount: { [key: string]: number } = {
-      SDM: 0,
-      Keuangan: 0,
-      Umum: 0,
-      Akademik: 0,
-      Internal: 0,
-    };
-
-    allLetters.forEach((letter) => {
-      if (categoryCount.hasOwnProperty(letter.kategori)) {
-        categoryCount[letter.kategori]++;
-      }
-    });
-
-    const total = allLetters.length || 1;
-    return {
-      labels: Object.keys(categoryCount),
-      data: Object.values(categoryCount).map((val) =>
-        Math.round((val / total) * 100),
-      ),
-    };
-  };
-
-  // Hitung disposisi yang pending (belum selesai)
-  const calculatePendingDisposisi = () => {
-    const today = new Date();
-    return disposisi.filter((d) => new Date(d.deadline) >= today).length;
-  };
-
-  // Hitung disposisi yang sudah overdue (deadline lewat)
-  const calculateOverdueDisposisi = () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return disposisi.filter((d) => {
-      const deadline = new Date(d.deadline);
-      deadline.setHours(0, 0, 0, 0);
-      return deadline < today;
-    }).length;
-  };
-
-  // Hitung disposisi yang deadline-nya sudah dekat (3 hari ke depan)
-  const calculateApproachingDeadline = () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const threeDaysLater = new Date(today);
-    threeDaysLater.setDate(threeDaysLater.getDate() + 3);
-
-    return disposisi.filter((d) => {
-      const deadline = new Date(d.deadline);
-      deadline.setHours(0, 0, 0, 0);
-      return deadline >= today && deadline <= threeDaysLater;
-    }).length;
-  };
-
-  // Hitung surat yang belum memiliki disposisi
-  const calculateSuratWithoutDisposisi = () => {
-    const allSurat = [...suratMasuk, ...suratKeluar];
-    const disposisiSuratIds = disposisi.map((d) => String(d.surat_id));
-    return allSurat.filter((s) => !disposisiSuratIds.includes(String(s.id)))
-      .length;
-  };
-
-  const checkSession = async () => {
-    await session();
-    await fetchDashboardData();
-  };
-
-  useEffect(() => {
-    checkSession();
   }, []);
 
-  // Generate chart data berdasarkan data real
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  const semuaSurat = useMemo(
+    () => [...suratMasuk, ...suratKeluar],
+    [suratMasuk, suratKeluar],
+  );
+
+  /**
+   * Tren 7 hari terakhir dihitung dari kolom `tanggal` tiap surat.
+   * Sebelumnya angka grafik hanya total dibagi bilangan tetap (total/2, total/1.8,
+   * dst.) sehingga bentuk kurvanya tidak mencerminkan data apa pun.
+   */
+  const trenMingguan = useMemo(() => {
+    const hariIni = new Date();
+    hariIni.setHours(0, 0, 0, 0);
+
+    const hari: { label: string; kunci: string }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const tanggal = new Date(hariIni);
+      tanggal.setDate(tanggal.getDate() - i);
+      hari.push({
+        label: `${NAMA_HARI[tanggal.getDay()]} ${tanggal.getDate()}`,
+        kunci: formatTanggalLokal(tanggal),
+      });
+    }
+
+    const hitung = (daftar: Surat[]) => {
+      const perTanggal = new Map<string, number>();
+      for (const surat of daftar) {
+        const tanggal = parseTanggal(surat.tanggal);
+        if (!tanggal) continue;
+        const kunci = formatTanggalLokal(tanggal);
+        perTanggal.set(kunci, (perTanggal.get(kunci) ?? 0) + 1);
+      }
+      return hari.map(({ kunci }) => perTanggal.get(kunci) ?? 0);
+    };
+
+    return {
+      labels: hari.map((h) => h.label),
+      masuk: hitung(suratMasuk),
+      keluar: hitung(suratKeluar),
+      periode: `${formatTanggalIndonesia(hari[0].kunci)} – ${formatTanggalIndonesia(hari[6].kunci)}`,
+    };
+  }, [suratMasuk, suratKeluar]);
+
+  /** Distribusi kategori: jumlah asli + persentase untuk label. */
+  const distribusiKategori = useMemo(() => {
+    const jumlah = new Map<string, number>(KATEGORI_SURAT.map((k) => [k, 0]));
+    let terklasifikasi = 0;
+
+    for (const surat of semuaSurat) {
+      if (jumlah.has(surat.kategori)) {
+        jumlah.set(surat.kategori, (jumlah.get(surat.kategori) ?? 0) + 1);
+        terklasifikasi += 1;
+      }
+    }
+
+    const labels = [...jumlah.keys()];
+    const nilai = [...jumlah.values()];
+    const pembagi = terklasifikasi || 1;
+
+    return {
+      labels,
+      nilai,
+      persen: nilai.map((v) => Math.round((v / pembagi) * 100)),
+      terklasifikasi,
+    };
+  }, [semuaSurat]);
+
+  const ringkasanDisposisi = useMemo(() => {
+    const hariIni = new Date();
+    hariIni.setHours(0, 0, 0, 0);
+    const tigaHari = new Date(hariIni);
+    tigaHari.setDate(tigaHari.getDate() + 3);
+
+    let aktif = 0;
+    let terlambat = 0;
+    let mendekatiTenggat = 0;
+
+    for (const item of disposisi) {
+      const deadline = parseTanggal(item.deadline);
+      if (!deadline) continue;
+      deadline.setHours(0, 0, 0, 0);
+
+      if (deadline < hariIni) {
+        terlambat += 1;
+        continue;
+      }
+      aktif += 1;
+      if (deadline <= tigaHari) mendekatiTenggat += 1;
+    }
+
+    const idSuratBerdisposisi = new Set(
+      disposisi.map((d) => String(d.surat_id)),
+    );
+    const tanpaDisposisi = semuaSurat.filter(
+      (s) => !idSuratBerdisposisi.has(String(s.id)),
+    ).length;
+
+    return { aktif, terlambat, mendekatiTenggat, tanpaDisposisi };
+  }, [disposisi, semuaSurat]);
+
   const lineData = {
-    labels: ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"],
+    labels: trenMingguan.labels,
     datasets: [
       {
         fill: true,
         label: "Surat Masuk",
-        data: [
-          Math.ceil(suratMasuk.length / 2),
-          Math.ceil(suratMasuk.length / 1.8),
-          Math.ceil(suratMasuk.length / 1.6),
-          Math.ceil(suratMasuk.length / 1.4),
-          Math.ceil(suratMasuk.length / 1.2),
-          Math.ceil(suratMasuk.length / 1),
-          suratMasuk.length,
-        ],
+        data: trenMingguan.masuk,
         borderColor: "rgb(5, 150, 105)",
         backgroundColor: "rgba(5, 150, 105, 0.1)",
         tension: 0.4,
@@ -193,15 +202,7 @@ export default function DashboardPage() {
       {
         fill: true,
         label: "Surat Keluar",
-        data: [
-          Math.ceil(suratKeluar.length / 2),
-          Math.ceil(suratKeluar.length / 1.8),
-          Math.ceil(suratKeluar.length / 1.6),
-          Math.ceil(suratKeluar.length / 1.4),
-          Math.ceil(suratKeluar.length / 1.2),
-          Math.ceil(suratKeluar.length / 1),
-          suratKeluar.length,
-        ],
+        data: trenMingguan.keluar,
         borderColor: "rgb(59, 130, 246)",
         backgroundColor: "rgba(59, 130, 246, 0.1)",
         tension: 0.4,
@@ -209,20 +210,12 @@ export default function DashboardPage() {
     ],
   };
 
-  // Data untuk Grafik Kategori (Doughnut)
-  const categoryDist = calculateCategoryDistribution();
   const doughnutData = {
-    labels: categoryDist.labels,
+    labels: distribusiKategori.labels,
     datasets: [
       {
-        data: categoryDist.data,
-        backgroundColor: [
-          "#059669", // emerald 600
-          "#3b82f6", // Blue 500
-          "#f59e0b", // Amber 500
-          "#64748b", // Slate 500
-          "#8b5cf6", // Violet 500
-        ],
+        data: distribusiKategori.nilai,
+        backgroundColor: WARNA_KATEGORI,
         borderWidth: 0,
       },
     ],
@@ -231,30 +224,30 @@ export default function DashboardPage() {
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-    },
+    plugins: { legend: { display: false } },
     scales: {
-      y: { grid: { display: false }, border: { display: false } },
+      y: {
+        grid: { display: false },
+        border: { display: false },
+        beginAtZero: true,
+        // Jumlah surat selalu bilangan bulat.
+        ticks: { precision: 0 },
+      },
       x: { grid: { display: false }, border: { display: false } },
     },
   };
 
-  // Stats data dengan kalkulasi dari data real
-  const totalBerkas = suratMasuk.length + suratKeluar.length;
-  const prosesTTD = calculatePendingDisposisi();
-
   const statsData = [
     {
       label: "Total Berkas",
-      val: totalBerkas.toLocaleString("id-ID"),
+      val: semuaSurat.length.toLocaleString("id-ID"),
       icon: FileText,
       color: "text-emerald-600",
       bg: "bg-emerald-50",
     },
     {
-      label: "Proses TTD",
-      val: prosesTTD,
+      label: "Disposisi Aktif",
+      val: ringkasanDisposisi.aktif,
       icon: Clock,
       color: "text-amber-600",
       bg: "bg-amber-50",
@@ -267,13 +260,25 @@ export default function DashboardPage() {
       bg: "bg-blue-50",
     },
     {
-      label: "Disposisi",
+      label: "Total Disposisi",
       val: disposisi.length,
       icon: ArrowUpRight,
       color: "text-indigo-600",
       bg: "bg-indigo-50",
     },
   ];
+
+  const aktivitasTerakhir = useMemo(
+    () =>
+      [...semuaSurat]
+        .sort((a, b) => {
+          const waktuA = parseTanggal(a.tanggal)?.getTime() ?? 0;
+          const waktuB = parseTanggal(b.tanggal)?.getTime() ?? 0;
+          return waktuB - waktuA;
+        })
+        .slice(0, 3),
+    [semuaSurat],
+  );
 
   return (
     <div className="space-y-8">
@@ -285,11 +290,11 @@ export default function DashboardPage() {
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-bold text-gray-400 uppercase ">
+                <p className="text-xs font-bold text-gray-400 uppercase">
                   {stat.label}
                 </p>
                 <h3 className="text-2xl font-bold text-gray-900 mt-1">
-                  {stat.val}
+                  {loading ? "…" : stat.val}
                 </h3>
               </div>
               <div className={`${stat.bg} ${stat.color} p-3 rounded-md`}>
@@ -304,23 +309,21 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Line Chart: Tren Surat */}
         <div className="lg:col-span-2 bg-white p-8 rounded-md border border-gray-100 shadow-sm">
-          <div className="flex justify-between items-center mb-8">
+          <div className="flex flex-wrap gap-4 justify-between items-center mb-8">
             <div>
               <h2 className="text-xl font-bold text-gray-800">
                 Tren Lalu Lintas Surat
               </h2>
               <p className="text-sm text-gray-400 font-medium">
-                Data mingguan periode April 2026
+                7 hari terakhir &middot; {trenMingguan.periode}
               </p>
             </div>
             <div className="flex space-x-4">
               <div className="flex items-center text-xs font-bold text-gray-500">
-                <span className="w-3 h-3 bg-emerald-600 rounded-full mr-2"></span>{" "}
-                Masuk
+                <span className="w-3 h-3 bg-emerald-600 rounded-full mr-2" /> Masuk
               </div>
               <div className="flex items-center text-xs font-bold text-gray-500">
-                <span className="w-3 h-3 bg-blue-500 rounded-full mr-2"></span>{" "}
-                Keluar
+                <span className="w-3 h-3 bg-blue-500 rounded-full mr-2" /> Keluar
               </div>
             </div>
           </div>
@@ -331,42 +334,45 @@ export default function DashboardPage() {
 
         {/* Doughnut Chart: Distribusi Kategori */}
         <div className="bg-white p-8 rounded-md border border-gray-100 shadow-sm">
-          <h2 className="text-xl font-bold text-gray-800 mb-2">
-            Kategori Surat
-          </h2>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">Kategori Surat</h2>
           <p className="text-sm text-gray-400 font-medium mb-8">
-            Persentase distribusi bidang
+            Distribusi bidang surat
           </p>
           <div className="h-55 relative">
             <Doughnut
               data={doughnutData}
-              options={{ ...chartOptions, cutout: "70%" }}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                cutout: "70%",
+              }}
             />
-            <div className="absolute ps-7 pb-3 inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-3xl font-black text-gray-800">100%</span>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              {/* Angka tengah kini jumlah surat terklasifikasi, bukan teks "100%" tetap. */}
+              <span className="text-3xl font-black text-gray-800">
+                {distribusiKategori.terklasifikasi}
+              </span>
               <span className="text-[10px] font-bold text-gray-400 uppercase">
                 Terklasifikasi
               </span>
             </div>
           </div>
           <div className="mt-6 space-y-3">
-            {doughnutData.labels.map((label, i) => (
-              <div
-                key={i}
-                className="flex justify-between items-center text-sm"
-              >
+            {distribusiKategori.labels.map((label, i) => (
+              <div key={label} className="flex justify-between items-center text-sm">
                 <div className="flex items-center">
                   <div
                     className="w-2 h-2 rounded-full mr-3"
-                    style={{
-                      backgroundColor:
-                        doughnutData.datasets[0].backgroundColor[i],
-                    }}
-                  ></div>
+                    style={{ backgroundColor: WARNA_KATEGORI[i] }}
+                  />
                   <span className="font-bold text-gray-600">{label}</span>
                 </div>
                 <span className="font-black text-gray-900">
-                  {doughnutData.datasets[0].data[i]}%
+                  {distribusiKategori.nilai[i]}{" "}
+                  <span className="text-xs font-bold text-gray-400">
+                    ({distribusiKategori.persen[i]}%)
+                  </span>
                 </span>
               </div>
             ))}
@@ -374,52 +380,48 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Lower Row: Important Info & Department Activity */}
+      {/* Lower Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Info Penting / Logs */}
+        {/* Aktivitas Terakhir */}
         <div className="bg-white rounded-md border border-gray-100 shadow-sm overflow-hidden">
           <div className="p-8 border-b border-gray-50 flex justify-between items-center">
-            <h2 className="text-xl font-bold text-gray-800">
-              Aktivitas Terakhir
-            </h2>
+            <h2 className="text-xl font-bold text-gray-800">Aktivitas Terakhir</h2>
           </div>
           <div className="divide-y divide-gray-50">
-            {[...suratMasuk, ...suratKeluar]
-              .sort(
-                (a, b) =>
-                  new Date(b.tanggal).getTime() - new Date(a.tanggal).getTime(),
-              )
-              .slice(0, 3)
-              .map((surat, i) => (
+            {aktivitasTerakhir.length === 0 ? (
+              <p className="p-6 text-sm text-gray-400">
+                {loading ? "Memuat data..." : "Belum ada surat yang tercatat."}
+              </p>
+            ) : (
+              aktivitasTerakhir.map((surat) => (
                 <div
-                  key={i}
-                  className="p-6 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                  key={surat.id}
+                  className="p-6 flex items-center justify-between gap-4 hover:bg-gray-50 transition-colors"
                 >
-                  <div className="flex items-center space-x-4">
-                    <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center font-bold text-gray-500 text-xs">
+                  <div className="flex items-center space-x-4 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center font-bold text-gray-500 text-xs shrink-0">
                       {surat.jenis === "masuk" ? "M" : "K"}
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-sm font-semibold text-gray-800">
                         Surat {surat.jenis === "masuk" ? "Masuk" : "Keluar"}
                       </p>
-                      <p className="text-xs text-gray-500 font-medium">
-                        {surat.ringkasan.substring(0, 40)}... —{" "}
-                        <span className="text-sky-600">
-                          {surat.nomor_surat}
-                        </span>
+                      <p className="text-xs text-gray-500 font-medium truncate">
+                        {surat.ringkasan || "Tanpa ringkasan"} —{" "}
+                        <span className="text-sky-600">{surat.nomor_surat}</span>
                       </p>
                     </div>
                   </div>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase">
-                    {new Date(surat.tanggal).toLocaleDateString("id-ID")}
+                  <span className="text-[10px] font-bold text-gray-400 uppercase shrink-0">
+                    {formatTanggalIndonesia(surat.tanggal)}
                   </span>
                 </div>
-              ))}
+              ))
+            )}
           </div>
         </div>
 
-        {/* Quick Action / Summary Section */}
+        {/* Perlu Atensi */}
         <div className="bg-sky-900 rounded-md p-8 text-white h-fit relative overflow-hidden shadow-xl shadow-sky-200">
           <div className="relative h-fit flex flex-col">
             <div>
@@ -429,53 +431,50 @@ export default function DashboardPage() {
               </p>
             </div>
 
-            <div className=" mt-8 space-y-4">
-              {/* Overdue Dispositions */}
-              {calculateOverdueDisposisi() > 0 && (
+            <div className="mt-8 space-y-4">
+              {ringkasanDisposisi.terlambat > 0 && (
                 <div className="bg-red-600/20 p-4 rounded-md flex items-center justify-between border border-red-500/30">
                   <div className="flex items-center space-x-3">
-                    <div className="w-2 h-2 bg-red-400 rounded-full animate-pulse"></div>
+                    <div className="w-2 h-2 bg-red-400 rounded-full animate-pulse" />
                     <span className="text-sm font-bold">
-                      {calculateOverdueDisposisi()} Disposisi Overdue
+                      {ringkasanDisposisi.terlambat} Disposisi Melewati Tenggat
                     </span>
                   </div>
                   <ChevronRight className="w-4 h-4 text-red-300" />
                 </div>
               )}
 
-              {/* Approaching Deadline */}
-              {calculateApproachingDeadline() > 0 && (
+              {ringkasanDisposisi.mendekatiTenggat > 0 && (
                 <div className="bg-amber-600/20 p-4 rounded-md flex items-center justify-between border border-amber-500/30">
                   <div className="flex items-center space-x-3">
-                    <div className="w-2 h-2 bg-amber-400 rounded-full animate-pulse"></div>
+                    <div className="w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
                     <span className="text-sm font-bold">
-                      {calculateApproachingDeadline()} Deadline dalam 3 Hari
+                      {ringkasanDisposisi.mendekatiTenggat} Tenggat dalam 3 Hari
                     </span>
                   </div>
                   <ChevronRight className="w-4 h-4 text-amber-300" />
                 </div>
               )}
 
-              {/* Surat tanpa Disposisi */}
-              {calculateSuratWithoutDisposisi() > 0 && (
+              {ringkasanDisposisi.tanpaDisposisi > 0 && (
                 <div className="bg-sky-800/50 p-4 rounded-md flex items-center justify-between border border-sky-700/50">
                   <div className="flex items-center space-x-3">
-                    <div className="w-2 h-2 bg-sky-400 rounded-full animate-pulse"></div>
+                    <div className="w-2 h-2 bg-sky-400 rounded-full animate-pulse" />
                     <span className="text-sm font-bold">
-                      {calculateSuratWithoutDisposisi()} Surat Belum Didisposisi
+                      {ringkasanDisposisi.tanpaDisposisi} Surat Belum Didisposisi
                     </span>
                   </div>
                   <ChevronRight className="w-4 h-4 text-sky-300" />
                 </div>
               )}
 
-              {/* Fallback jika semua aman */}
-              {calculateOverdueDisposisi() === 0 &&
-                calculateApproachingDeadline() === 0 &&
-                calculateSuratWithoutDisposisi() === 0 && (
+              {!loading &&
+                ringkasanDisposisi.terlambat === 0 &&
+                ringkasanDisposisi.mendekatiTenggat === 0 &&
+                ringkasanDisposisi.tanpaDisposisi === 0 && (
                   <div className="bg-emerald-600/20 p-4 rounded-md flex items-center justify-between border border-emerald-500/30">
                     <div className="flex items-center space-x-3">
-                      <div className="w-2 h-2 bg-emerald-400 rounded-full"></div>
+                      <div className="w-2 h-2 bg-emerald-400 rounded-full" />
                       <span className="text-sm font-bold">
                         Semua Berkas Terkontrol dengan Baik
                       </span>
@@ -485,8 +484,7 @@ export default function DashboardPage() {
                 )}
             </div>
           </div>
-          {/* Background Decoration */}
-          <div className="absolute -bottom-12 -right-12 w-64 h-64 bg-blue-800 rounded-full opacity-20 blur-3xl"></div>
+          <div className="absolute -bottom-12 -right-12 w-64 h-64 bg-blue-800 rounded-full opacity-20 blur-3xl" />
         </div>
       </div>
     </div>

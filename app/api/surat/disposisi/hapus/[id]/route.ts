@@ -1,43 +1,29 @@
 import { supabase } from "@/config/supabase";
+import { apiCatch, apiFail, apiOk, assertNoDbError, requireUser } from "@/lib/api";
 
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const id = (await params).id;
-  if (!id)
-    return new Response(
-      JSON.stringify({ status: 400, reason: "ID harus disertakan" }),
-      {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      },
-    );
-
   try {
+    await requireUser();
+
+    const id = (await params).id;
+    if (!id) return apiFail(400, "ID disposisi harus disertakan");
+
     const { data, error } = await supabase
       .from("disposisi")
       .delete()
-      .eq("id", id);
+      .eq("id", id)
+      .select("id");
 
-    if (error) {
-      console.error(error);
-      return new Response(
-        JSON.stringify({ status: 401, reason: error.message }),
-        {
-          status: 401,
-          headers: { "Content-Type": "application/json" },
-        },
-      );
+    assertNoDbError(error, "disposisi.hapus");
+    if (!data || data.length === 0) {
+      return apiFail(404, "Disposisi tidak ditemukan");
     }
-    return new Response(JSON.stringify({ status: 200, data }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (err: any) {
-    return new Response(JSON.stringify({ status: 500, reason: err.message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+
+    return apiOk(data);
+  } catch (err) {
+    return apiCatch(err, "disposisi.hapus");
   }
 }

@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Swal from "sweetalert2";
 import { z } from "zod";
+import { pesanError } from "@/lib/error";
 
 // Skema Validasi Zod (Sama dengan Tambah)
 const disposisiSchema = z.object({
@@ -22,7 +23,6 @@ export default function EditDisposisiPage() {
   const params = useParams();
   const router = useRouter();
 
-  console.log(params);
 
   const [isFetching, setIsFetching] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -55,7 +55,7 @@ export default function EditDisposisiPage() {
             catatan: res.data.catatan || "",
           });
         }
-      } catch (err) {
+      } catch {
         Swal.fire("Error", "Gagal mengambil data disposisi", "error");
         router.back();
       } finally {
@@ -64,7 +64,7 @@ export default function EditDisposisiPage() {
     };
 
     fetchExistingData();
-  }, [params.id, router]);
+  }, [params.id, params.id_disposisi, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,9 +73,9 @@ export default function EditDisposisiPage() {
     const result = disposisiSchema.safeParse(formData);
 
     if (!result.success) {
-      const formattedErrors: any = {};
+      const formattedErrors: Partial<Record<keyof DisposisiFormData, string>> = {};
       result.error.issues.forEach((issue) => {
-        formattedErrors[issue.path[0]] = issue.message;
+        formattedErrors[issue.path[0] as keyof DisposisiFormData] = issue.message;
       });
       setErrors(formattedErrors);
       return;
@@ -94,10 +94,10 @@ export default function EditDisposisiPage() {
       }).then((result) => {
         if (result.isConfirmed) router.back();
       });
-    } catch (err: any) {
+    } catch (err) {
       Swal.fire(
         "Gagal!",
-        err.message || "Terjadi kesalahan saat update.",
+        pesanError(err, "Terjadi kesalahan saat update."),
         "error",
       );
     } finally {

@@ -1,25 +1,36 @@
 import { supabase } from "@/config/supabase";
-import { NextResponse } from "next/server";
+import { apiCatch, apiFail, apiOk, assertNoDbError, requireUser } from "@/lib/api";
+import { skemaDisposisi } from "@/lib/validasi-surat";
 
 export async function POST(request: Request) {
-  const payload = await request.json();
-
-  if (!payload)
-    return NextResponse.json({ status: 401, reason: "Data tidak lengkap" });
-
   try {
+    await requireUser();
+
+    const parsed = skemaDisposisi.safeParse(await request.json());
+    if (!parsed.success) {
+      return apiFail(400, parsed.error.issues[0]?.message ?? "Data tidak lengkap");
+    }
+    const payload = parsed.data;
+
+    // Disposisi tanpa surat induk akan menjadi baris yatim, jadi keberadaan
+    // suratnya diverifikasi lebih dulu.
+    const { data: surat, error: errorSurat } = await supabase
+      .from("surat")
+      .select("id")
+      .eq("id", payload.surat_id)
+      .maybeSingle();
+
+    assertNoDbError(errorSurat, "disposisi.tambah.cekSurat");
+    if (!surat) return apiFail(404, "Surat tidak ditemukan");
+
     const { data, error } = await supabase
       .from("disposisi")
       .insert(payload)
       .select();
 
-    if (error) {
-      console.error(error);
-      return NextResponse.json({ status: 401, reason: error.message });
-    }
-
-    return NextResponse.json({ status: 200, data });
-  } catch (err: any) {
-    return NextResponse.json({ status: 500, reason: err.message });
+    assertNoDbError(error, "disposisi.tambah");
+    return apiOk(data);
+  } catch (err) {
+    return apiCatch(err, "disposisi.tambah");
   }
 }

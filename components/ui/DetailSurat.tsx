@@ -9,17 +9,27 @@ import {
   User,
   X,
 } from "lucide-react";
+import { formatTanggalIndonesia } from "@/lib/format";
+import type { Surat } from "@/lib/tipe";
 
 interface detailSuratProps {
-  item: any;
-  setViewDetail: any;
+  item: Surat;
+  setViewDetail: (item: Surat | null) => void;
+  /** Dipasok halaman pemanggil agar tombol cetak memakai kop surat instansinya. */
+  onPrint?: (item: Surat) => void;
 }
 
-export default function DetailSurat({ item, setViewDetail }: detailSuratProps) {
+export default function DetailSurat({
+  item,
+  setViewDetail,
+  onPrint,
+}: detailSuratProps) {
   const isImageFile = (url: string) => {
     if (!url) return false;
     return /\.(jpeg|jpg|gif|png|webp|svg)(\?.*)?$/i.test(url);
   };
+
+  const suratKeluar = String(item?.jenis).toLowerCase() === "keluar";
 
   return (
     <div className="flex flex-col h-full">
@@ -71,9 +81,11 @@ export default function DetailSurat({ item, setViewDetail }: detailSuratProps) {
             </div>
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase">
-                Asal Surat
+                {suratKeluar ? "Tujuan Surat" : "Asal Surat"}
               </p>
-              <p className="font-bold text-slate-800">{item.asal_surat}</p>
+              <p className="font-bold text-slate-800">
+                {(suratKeluar ? item.tujuan_surat : item.asal_surat) || "-"}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -97,7 +109,9 @@ export default function DetailSurat({ item, setViewDetail }: detailSuratProps) {
               <p className="text-[10px] font-bold text-slate-400 uppercase">
                 Tanggal Surat
               </p>
-              <p className="font-bold text-slate-800">{item.tanggal}</p>
+              <p className="font-bold text-slate-800">
+                {formatTanggalIndonesia(item.tanggal)}
+              </p>
             </div>
           </div>
         </div>
@@ -153,14 +167,17 @@ export default function DetailSurat({ item, setViewDetail }: detailSuratProps) {
           </div>
         )}
 
-        <div className="pt-8 flex flex-col gap-3 shrink-0 pb-6">
-          <button
-            //   onClick={() => handlePrint(item)}
-            className="w-full py-3 bg-sky-600 text-white rounded-md font-bold text-xs uppercase tracking-widest hover:bg-sky-700 transition-all shadow-md shadow-sky-200 flex items-center justify-center gap-2"
-          >
-            <Printer className="w-4 h-4" /> Cetak Lembar Info
-          </button>
-        </div>
+        {onPrint && (
+          <div className="pt-8 flex flex-col gap-3 shrink-0 pb-6">
+            <button
+              type="button"
+              onClick={() => onPrint(item)}
+              className="w-full py-3 bg-sky-600 text-white rounded-md font-bold text-xs uppercase tracking-widest hover:bg-sky-700 transition-all shadow-md shadow-sky-200 flex items-center justify-center gap-2"
+            >
+              <Printer className="w-4 h-4" /> Cetak Lembar Pengantar
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

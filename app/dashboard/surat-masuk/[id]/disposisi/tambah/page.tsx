@@ -5,12 +5,12 @@ import {
   Calendar,
   Send,
   Loader2,
-  ChartNoAxesColumnDecreasing,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import Swal from "sweetalert2";
 import { z } from "zod";
+import { pesanError } from "@/lib/error";
 
 // Skema Validasi Zod
 const disposisiSchema = z.object({
@@ -32,7 +32,6 @@ export default function TambahDisposisiPage() {
     Partial<Record<keyof DisposisiFormData, string>>
   >({});
 
-  console.log("testing");
 
   // State untuk form
   const [formData, setFormData] = useState<DisposisiFormData>({
@@ -51,9 +50,9 @@ export default function TambahDisposisiPage() {
     const result = disposisiSchema.safeParse(formData);
 
     if (!result.success) {
-      const formattedErrors: any = {};
+      const formattedErrors: Partial<Record<keyof DisposisiFormData, string>> = {};
       result.error.issues.forEach((issue) => {
-        formattedErrors[issue.path[0]] = issue.message;
+        formattedErrors[issue.path[0] as keyof DisposisiFormData] = issue.message;
       });
       setErrors(formattedErrors);
       return;
@@ -72,10 +71,10 @@ export default function TambahDisposisiPage() {
       });
 
       router.back();
-    } catch (err: any) {
+    } catch (err) {
       Swal.fire({
         title: "Gagal!",
-        text: err.message || "Terjadi kesalahan sistem.",
+        text: pesanError(err, "Terjadi kesalahan sistem."),
         icon: "error",
       });
     } finally {

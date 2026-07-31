@@ -1,28 +1,36 @@
 import { supabase } from "@/config/supabase";
-import { NextResponse } from "next/server";
+import { apiCatch, apiFail, apiOk, assertNoDbError, requireUser } from "@/lib/api";
+import { skemaDisposisiPartial } from "@/lib/validasi-surat";
 
 export async function POST(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const payload = await request.json();
-
-  const id_surat = searchParams.get("id");
-
-  if (!payload || !id_surat)
-    return NextResponse.json({ status: 401, reason: "Data tidak lengkap" });
-
   try {
-    const { data, error }: any = await supabase
-      .from("disposisi")
-      .update(payload)
-      .eq("id", id_surat);
+    await requireUser();
 
-    if (error) {
-      console.error(error.message);
-      return NextResponse.json({ status: 401, reason: error.message });
+    const { searchParams } = new URL(request.url);
+    const idDisposisi = searchParams.get("id");
+    if (!idDisposisi) return apiFail(400, "ID disposisi harus disertakan");
+
+    const parsed = skemaDisposisiPartial.safeParse(await request.json());
+    if (!parsed.success) {
+      return apiFail(400, parsed.error.issues[0]?.message ?? "Data tidak valid");
+    }
+    if (Object.keys(parsed.data).length === 0) {
+      return apiFail(400, "Tidak ada perubahan yang dikirim");
     }
 
-    return NextResponse.json({ status: 200, data });
-  } catch (err: any) {
-    return NextResponse.json({ status: 500, reason: err.message });
+    const { data, error } = await supabase
+      .from("disposisi")
+      .update(parsed.data)
+      .eq("id", idDisposisi)
+      .select();
+
+    assertNoDbError(error, "disposisi.edit");
+    if (!data || data.length === 0) {
+      return apiFail(404, "Disposisi tidak ditemukan");
+    }
+
+    return apiOk(data);
+  } catch (err) {
+    return apiCatch(err, "disposisi.edit");
   }
 }

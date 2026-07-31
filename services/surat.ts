@@ -1,4 +1,5 @@
-import axios from "axios";
+import { formatTanggalLokal } from "@/lib/format";
+import { http } from "@/services/http";
 
 interface suratProps {
   nomor_agenda: string;
@@ -26,70 +27,90 @@ interface disposisiProps {
 
 export async function ambilDataDisposisiByIdSurat(id: string) {
   if (!id || id.length === 0) throw new Error("Data tidak lengkap");
-  const response = await axios.get("/api/surat/disposisi/id-surat/" + id);
-  if (response.data.status !== 200) throw new Error(response.data.reason);
+  const response = await http.get("/api/surat/disposisi/id-surat/" + id);
   return response.data;
 }
 
 export async function ambilDataDisposisiById(id: string) {
   if (!id || id.length === 0) throw new Error("Data tidak lengkap");
-  const response = await axios.get("/api/surat/disposisi/" + id);
-  if (response.data.status !== 200) throw new Error(response.data.reason);
+  const response = await http.get("/api/surat/disposisi/" + id);
   return response.data;
 }
 
 export async function ambilDataDisposisi() {
-  const response = await axios.get("/api/surat/disposisi");
-  if (response.data.status !== 200) throw new Error(response.data.reason);
+  const response = await http.get("/api/surat/disposisi");
   return response.data;
 }
 
 export async function simpanDisposisi(data: disposisiProps, id: string) {
-  if (!data || id.length === 0) throw new Error("Data tidak lengkap");
-  const response = await axios.post("/api/surat/disposisi/edit?id=" + id, data);
-  if (response.data.status !== 200) throw new Error(response.data.reason);
+  if (!data || !id || id.length === 0) throw new Error("Data tidak lengkap");
+  const response = await http.post("/api/surat/disposisi/edit?id=" + id, data);
   return response.data;
 }
 
 export async function hapusDataSurat(id: string) {
   if (!id) throw new Error("Harus menyertakan id");
-  const response = await axios.get("/api/surat/hapus/" + id);
-  if (response.data.status !== 200) throw new Error(response.data.reason);
+  // DELETE, bukan GET: penghapusan tidak boleh terjadi hanya karena URL dibuka.
+  const response = await http.delete("/api/surat/hapus/" + id);
   return response.data;
 }
 
 export async function hapusDataDisposisi(id: string) {
   if (!id) throw new Error("Harus menyertakan id");
-  const response = await axios.delete("/api/surat/disposisi/hapus/" + id);
-  if (response.data.status !== 200) throw new Error(response.data.reason);
+  const response = await http.delete("/api/surat/disposisi/hapus/" + id);
   return response.data;
 }
 
 export async function ambilDataSuratById(id: string) {
-  const response = await axios.get("/api/surat/" + id);
-  if (response.data.status !== 200) throw new Error(response.data.reason);
+  if (!id) throw new Error("Harus menyertakan id");
+  const response = await http.get("/api/surat/" + id);
   return response.data;
 }
 
-export async function ambilDataSurat(jenis: string, limit: number = 10) {
-  const response = await axios.get(`/api/surat?jenis=${jenis}&limit=${limit}`);
-  if (response.data.status !== 200) throw new Error(response.data.reason);
+/**
+ * @param limit Batas jumlah data. Biarkan kosong untuk mengambil seluruh surat
+ *              (dipakai halaman daftar agar pencarian & paginasi bekerja atas
+ *              semua arsip, bukan hanya sebagian).
+ */
+export async function ambilDataSurat(jenis: string, limit?: number) {
+  const params = new URLSearchParams({ jenis });
+  if (typeof limit === "number") params.set("limit", String(limit));
 
+  const response = await http.get(`/api/surat?${params.toString()}`);
   return response.data;
 }
 
-export async function editSurat(payload: suratProps, id_surat: string) {
-  if (!payload || id_surat.length === 0) throw new Error("Data tidak lengkap");
-  const response = await axios.post("/api/surat/edit?id=" + id_surat, payload);
+export async function editSurat(
+  payload: Partial<suratProps>,
+  id_surat: string,
+  file?: File | null,
+) {
+  if (!payload || !id_surat || id_surat.length === 0)
+    throw new Error("Data tidak lengkap");
 
-  if (response.data.status !== 200) throw new Error(response.data.reason);
+  // Lampiran hanya dikirim bila pengguna memilih file baru.
+  if (file) {
+    const formData = new FormData();
+    Object.entries(payload).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) formData.append(key, String(value));
+    });
+    formData.append("file", file);
+
+    const response = await http.post(
+      "/api/surat/edit?id=" + id_surat,
+      formData,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+    return response.data;
+  }
+
+  const response = await http.post("/api/surat/edit?id=" + id_surat, payload);
   return response.data;
 }
 
 export async function tambahDisposisi(payload: disposisiProps) {
   if (!payload) throw new Error("Data tidak lengkap");
-  const response = await axios.post("/api/surat/disposisi/tambah", payload);
-  if (response.data.status !== 200) throw new Error(response.data.reason);
+  const response = await http.post("/api/surat/disposisi/tambah", payload);
   return response.data;
 }
 
@@ -98,32 +119,40 @@ export async function tambahSurat(payload: suratProps) {
   const formData = new FormData();
 
   Object.entries(payload).forEach(([key, value]) => {
-    formData.append(key, value as any);
+    if (value === undefined || value === null) return;
+    if (value instanceof File) {
+      formData.append(key, value);
+    } else {
+      formData.append(key, String(value));
+    }
   });
 
-  const response = await axios.post("/api/surat/tambah", formData, {
+  const response = await http.post("/api/surat/tambah", formData, {
     headers: {
       "Content-Type": "multipart/form-data",
     },
   });
 
-  if (response.data.status !== 200) throw new Error(response.data.reason);
   return response.data;
 }
 
+/**
+ * @param tanggalAwal  Tanggal awal (inklusif), memakai tanggal surat.
+ * @param tanggalAkhir Tanggal akhir (inklusif).
+ */
 export async function rentangSurat(
   tanggalAwal: Date,
   tanggalAkhir: Date,
   jenis: string,
 ) {
-  if (!tanggalAkhir || !tanggalAkhir || !jenis)
+  if (!tanggalAwal || !tanggalAkhir || !jenis)
     throw new Error("Data tidak lengkap");
-  const response = await axios.post("/api/surat/rentang", {
-    tanggalAwal,
-    tanggalAkhir,
+
+  const response = await http.post("/api/surat/rentang", {
+    tanggalAwal: formatTanggalLokal(tanggalAwal),
+    tanggalAkhir: formatTanggalLokal(tanggalAkhir),
     jenis,
   });
 
-  if (response.data.status !== 200) throw new Error(response.data.reason);
   return response.data;
 }

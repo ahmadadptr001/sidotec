@@ -7,7 +7,6 @@ import {
   UserX,
   AlertTriangle,
   Trash2,
-  Briefcase,
   Mail,
   Fingerprint,
   User,
@@ -15,17 +14,19 @@ import {
 } from "lucide-react";
 import { ambildataUser, hapusDataUser } from "@/services/user";
 import Swal from "sweetalert2";
+import type { PenggunaPublik } from "@/lib/tipe";
 import { useUser } from "@/context/UserProvider";
+import { pesanError } from "@/lib/error";
 
 export default function DeleteUserPage() {
   const { user: currentUser } = useUser(); // Rename agar tidak tertukar dengan iterasi
   const [searchQuery, setSearchQuery] = useState("");
-  const [dataUser, setDataUser] = useState<any[]>([]);
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [dataUser, setDataUser] = useState<PenggunaPublik[]>([]);
+  const [searchResults, setSearchResults] = useState<PenggunaPublik[]>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedUser, setSelectedUser] = useState<PenggunaPublik | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Cek apakah user yang dipilih adalah user yang sedang login
@@ -74,7 +75,7 @@ export default function DeleteUserPage() {
     }
   };
 
-  const handleSelectUser = (u: any) => {
+  const handleSelectUser = (u: PenggunaPublik) => {
     setSelectedUser(u);
     setSearchQuery("");
     setIsDropdownOpen(false);
@@ -109,9 +110,9 @@ export default function DeleteUserPage() {
           Swal.fire("Dihapus!", "Akun telah berhasil dihapus.", "success");
           ambilData();
           setSelectedUser(null);
-        } catch (err: any) {
+        } catch (err) {
           Swal.close();
-          Swal.fire("Gagal!", err.message || "Terjadi kesalahan", "error");
+          Swal.fire("Gagal!", pesanError(err, "Terjadi kesalahan"), "error");
         } finally {
           setLoading(false);
         }

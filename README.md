@@ -387,11 +387,20 @@ npm install
 
 3. **Setup environment variables**
 
+Salin `.env.example` menjadi `.env` di root directory, lalu isi nilainya:
+
 ```bash
-# Create .env.local file di root directory
-SUPABASE_URL=your_supabase_url
-SUPABASE_PUBLISHABLE_KEY=your_supabase_key
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_key
+
+# Kunci untuk menandatangani cookie sesi. WAJIB diisi — tanpa ini seluruh
+# proses login akan gagal. Minimal 32 karakter, buat dengan:
+#   node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+AUTH_SECRET=your_random_secret
 ```
+
+> Mengganti `AUTH_SECRET` membuat semua sesi yang sedang berjalan tidak berlaku
+> (pengguna harus login ulang). Jangan pernah commit berkas `.env`.
 
 4. **Run development server**
 

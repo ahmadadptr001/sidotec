@@ -16,6 +16,7 @@ import {
 import Swal from "sweetalert2";
 import { useUser } from "@/context/UserProvider";
 import { simpanDataInstansi } from "@/services/instansi";
+import { pesanError } from "@/lib/error";
 
 const formSchema = z.object({
   nama_instansi: z.string().min(3, "Nama instansi minimal 3 karakter"),
@@ -41,15 +42,19 @@ type FormData = z.infer<typeof formSchema>;
 
 export default function FormProfilInstansi() {
   const { instansi, setInstansi } = useUser();
-  const [id, setId] = useState(instansi[0]?.id);
+  const dataAwal = instansi?.[0];
+  // Id boleh kosong ketika data instansi belum pernah dibuat; server yang
+  // menentukan apakah operasinya insert atau update.
+  const [id, setId] = useState<string | number | null>(dataAwal?.id ?? null);
   const [formData, setFormData] = useState<FormData>({
-    nama_instansi: instansi[0]?.nama_instansi || "",
-    status: instansi[0]?.status || "Negeri",
-    alamat: instansi[0]?.alamat || "",
-    website: instansi[0]?.website || "",
-    email: instansi[0]?.email || "",
-    nomor_telpon: instansi[0]?.nomor_telpon || "",
-    akreditasi: instansi[0]?.akreditasi || "Belum Terakreditasi",
+    nama_instansi: dataAwal?.nama_instansi || "",
+    status: (dataAwal?.status as FormData["status"]) || "Negeri",
+    alamat: dataAwal?.alamat || "",
+    website: dataAwal?.website || "",
+    email: dataAwal?.email || "",
+    nomor_telpon: dataAwal?.nomor_telpon || "",
+    akreditasi:
+      (dataAwal?.akreditasi as FormData["akreditasi"]) || "Belum Terakreditasi",
   });
 
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>(
@@ -85,8 +90,20 @@ export default function FormProfilInstansi() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validasi data dengan Zod
+    // Validasi dijalankan lebih dulu, dialog loading menyusul.
     const result = formSchema.safeParse(formData);
+
+    if (!result.success) {
+      const fieldErrors: Partial<Record<keyof FormData, string>> = {};
+      result.error.issues.forEach((issue) => {
+        const path = issue.path[0] as keyof FormData;
+        if (path) {
+          fieldErrors[path] = issue.message;
+        }
+      });
+      setErrors(fieldErrors);
+      return;
+    }
 
     Swal.fire({
       title: "Menyimpan...",
@@ -97,39 +114,28 @@ export default function FormProfilInstansi() {
       },
     });
 
-    if (!result.success) {
-      // Mapping error dari Zod ke state error
-      const fieldErrors: Partial<Record<keyof FormData, string>> = {};
-      result.error.issues.forEach((issue) => {
-        const path = issue.path[0] as keyof FormData;
-        if (path) {
-          fieldErrors[path] = issue.message;
-        }
-      });
-      setErrors(fieldErrors);
-      Swal.close();
-      return;
-    }
-
-    // Jika validasi sukses (Siap dikirim ke database)
-    console.log("Data siap dikirim:", result.data);
     try {
       const response = await simpanDataInstansi(id, result.data);
-      setInstansi([formData]);
-      Swal.close();
-      if (response.data) {
-        Swal.fire({
-          icon: "success",
-          title: "Profil Berhasil Disimpan!",
-          text:
-            "Data instansi " + result.data.nama_instansi + " telah diperbarui.",
-        });
+      // Baris hasil simpan (lengkap dengan id) dipakai untuk menyegarkan state.
+      // Sebelumnya state diisi tanpa id, sehingga penyimpanan kedua pada sesi
+      // yang sama selalu gagal.
+      const tersimpan = response?.data?.[0];
+      if (tersimpan) {
+        setId(tersimpan.id);
+        setInstansi([tersimpan]);
       }
-    } catch (err: any) {
+
+      Swal.close();
+      Swal.fire({
+        icon: "success",
+        title: "Profil Berhasil Disimpan!",
+        text: "Data instansi " + result.data.nama_instansi + " telah diperbarui.",
+      });
+    } catch (err) {
       Swal.close();
       Swal.fire({
         title: "Gagal menyimpan data!",
-        text: err.message || "Terjadi kesalahan pada server",
+        text: pesanError(err, "Terjadi kesalahan pada server"),
         icon: "error",
       });
     }

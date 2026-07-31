@@ -1,19 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   LayoutDashboard,
   Inbox,
   Send,
-  FileBarChart,
   DatabaseBackup,
   DatabaseZap,
   LogOut,
   Menu,
-  X,
   ChevronLeft,
   ChevronRight,
-  Forward,
   Settings,
   ChevronDown,
   UserPlus,
@@ -22,13 +19,72 @@ import {
   School,
   Trash,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { removeSession, session } from "@/services/user";
-import Swal from "sweetalert2";
 import { useUser } from "@/context/UserProvider";
 import { dataRole } from "@/data/role";
 import { ambilDataInstansi } from "@/services/instansi";
+import LogoSidotec from "@/components/ui/LogoSidotec";
+
+interface MenuAnak {
+  name: string;
+  icon: LucideIcon;
+  path: string;
+}
+
+interface MenuItem extends MenuAnak {
+  children?: MenuAnak[];
+}
+
+interface MenuGroup {
+  label: string;
+  items: MenuItem[];
+}
+
+const MENU_UTAMA: MenuGroup = {
+  label: "Menu Utama",
+  items: [
+    { name: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
+    { name: "Surat Masuk", icon: Inbox, path: "/dashboard/surat-masuk" },
+    { name: "Surat Keluar", icon: Send, path: "/dashboard/surat-keluar" },
+    {
+      name: "Agenda",
+      icon: Calendar,
+      path: "#",
+      children: [
+        { name: "Surat Masuk", icon: Inbox, path: "/dashboard/agenda/surat-masuk" },
+        { name: "Surat Keluar", icon: Send, path: "/dashboard/agenda/surat-keluar" },
+      ],
+    },
+  ],
+};
+
+const MENU_SISTEM: MenuGroup = {
+  label: "Sistem",
+  items: [
+    { name: "Backup Database", icon: DatabaseBackup, path: "/dashboard/backup" },
+    { name: "Restore Database", icon: DatabaseZap, path: "/dashboard/restore" },
+  ],
+};
+
+const MENU_PENGATURAN: MenuGroup = {
+  label: "Pengaturan",
+  items: [
+    {
+      name: "Setup Management",
+      icon: Settings,
+      path: "#",
+      children: [
+        { name: "Tambah Akun", icon: UserPlus, path: "/dashboard/setup/akun" },
+        { name: "Hapus Akun", icon: Trash, path: "/dashboard/setup/hapus" },
+        { name: "Ubah Role", icon: Shield, path: "/dashboard/setup/role" },
+        { name: "Instansi", icon: School, path: "/dashboard/setup/instansi" },
+      ],
+    },
+  ],
+};
 
 export default function DashboardLayout({
   children,
@@ -41,144 +97,53 @@ export default function DashboardLayout({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
-  const [menuGroups, setMenuGroups] = useState([
-    {
-      label: "Menu Utama",
-      items: [
-        { name: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
-        { name: "Surat Masuk", icon: Inbox, path: "/dashboard/surat-masuk" },
-        { name: "Surat Keluar", icon: Send, path: "/dashboard/surat-keluar" },
-        {
-          name: "Agenda",
-          icon: Calendar,
-          path: "#",
-          children: [
-            {
-              name: "Surat Masuk",
-              icon: Inbox,
-              path: "/dashboard/agenda/surat-masuk",
-            },
-            {
-              name: "Surat Keluar",
-              icon: Send,
-              path: "/dashboard/agenda/surat-keluar",
-            },
-          ],
-        },
-      ],
-    },
-    {
-      label: "Sistem",
-      items: [
-        {
-          name: "Backup Database",
-          icon: DatabaseBackup,
-          path: "/dashboard/backup",
-        },
-        {
-          name: "Restore Database",
-          icon: DatabaseZap,
-          path: "/dashboard/restore",
-        },
-      ],
-    },
-    {
-      label: "Pengaturan",
-      items: [
-        {
-          name: "Setup Management",
-          icon: Settings,
-          path: "#",
-          children: [
-            {
-              name: "Tambah Akun",
-              icon: UserPlus,
-              path: "/dashboard/setup/akun",
-            },
-            { name: "hapus Akun", icon: Trash, path: "/dashboard/setup/hapus" },
-            { name: "Ubah Role", icon: Shield, path: "/dashboard/setup/role" },
-            {
-              name: "Instansi",
-              icon: School,
-              path: "/dashboard/setup/instansi",
-            },
-          ],
-        },
-      ],
-    },
-  ]);
+  const [keluar, setKeluar] = useState(false);
 
-  // cek sessi user
+  // Menu dihitung dari role, bukan disalin lewat setState. Menu Sistem &
+  // Pengaturan hanya untuk superadmin — sama dengan aturan di proxy.ts, jadi
+  // menu yang tampil selalu cocok dengan halaman yang benar-benar bisa dibuka.
+  const menuGroups = useMemo(() => {
+    if (user?.role?.toLowerCase() !== "superadmin") return [MENU_UTAMA];
+    return [MENU_UTAMA, MENU_SISTEM, MENU_PENGATURAN];
+  }, [user?.role]);
+
+  // Cek sesi user
   useEffect(() => {
-    if (user) return;
+    if (user || keluar) return;
+    let dibatalkan = false;
+
     (async () => {
-      const sessi = await session();
-      const islogin = sessi.isLogin;
-
-      // jika belum login maka user akan dikembalikan ke halaman login
-      if (!islogin) {
-        router.replace("/autentikasi/masuk");
-        return;
-      }
-
-      const data_user = JSON.parse(sessi.user)[0];
-      setUser(data_user);
-
-      // menentukan menu apa saja yang diizinkan berdasarkan role
-      if (data_user.role.toLowerCase() !== "superadmin") {
-        setMenuGroups([
-          {
-            label: "Menu Utama",
-            items: [
-              { name: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
-              {
-                name: "Surat Masuk",
-                icon: Inbox,
-                path: "/dashboard/surat-masuk",
-              },
-              {
-                name: "Surat Keluar",
-                icon: Send,
-                path: "/dashboard/surat-keluar",
-              },
-              {
-                name: "Agenda",
-                icon: Calendar,
-                path: "#",
-                children: [
-                  {
-                    name: "Surat Masuk",
-                    icon: Inbox,
-                    path: "/dashboard/agenda/surat-masuk",
-                  },
-                  {
-                    name: "Surat Keluar",
-                    icon: Send,
-                    path: "/dashboard/agenda/surat-keluar",
-                  },
-                ],
-              },
-            ],
-          },
-        ]);
-      }
-
-      // ambil & simpan data instansi secara global
       try {
+        const sessi = await session();
+        if (dibatalkan) return;
+
+        if (!sessi.isLogin || !sessi.user) {
+          router.replace("/autentikasi/masuk");
+          return;
+        }
+
+        // Endpoint sesi sekarang mengirim objek pengguna langsung (tanpa
+        // password), jadi tidak perlu JSON.parse(...)[0] lagi.
+        setUser(sessi.user);
+
         const responseInstansi = await ambilDataInstansi();
-        setInstansi(responseInstansi.data);
+        if (!dibatalkan) setInstansi(responseInstansi.data ?? []);
       } catch (err) {
         console.error(err);
+        if (!dibatalkan) router.replace("/autentikasi/masuk");
       }
     })();
-  }, [user]);
+
+    return () => {
+      dibatalkan = true;
+    };
+  }, [user, keluar, router, setUser, setInstansi]);
 
   useEffect(() => {
-    if (isMobileOpen) {
-      document.body.style.overflow = "hidden";
-    } else {
+    document.body.style.overflow = isMobileOpen ? "hidden" : "unset";
+    return () => {
       document.body.style.overflow = "unset";
-    }
+    };
   }, [isMobileOpen]);
 
   const toggleDropdown = (menuName: string) => {
@@ -191,18 +156,36 @@ export default function DashboardLayout({
   };
 
   const handleLogout = async () => {
-    const response = await removeSession();
+    setKeluar(true);
+    try {
+      await removeSession();
+    } catch (err) {
+      console.error(err);
+    }
     setUser(null);
+    setInstansi(null);
+    // Redirect eksplisit, tidak menunggu efek pemeriksaan sesi.
+    router.replace("/autentikasi/masuk");
   };
+
   if (!user || !instansi)
-    return <div className="p-3">Sedang mengambil data...</div>;
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-slate-500">
+        <LogoSidotec className="w-12 h-12 animate-pulse" />
+        <p className="text-sm font-medium">Sedang mengambil data...</p>
+      </div>
+    );
+
+  const labelRole =
+    dataRole[user.role?.toLowerCase() as keyof typeof dataRole] ?? user.role;
 
   return (
     <div className="flex min-h-screen bg-[#F8FAFC]">
       {/* Tombol Hamburger Mobile */}
       <button
-        className="lg:hidden fixed top-5 left-5  p-2 bg-white shadow-md rounded-lg border border-slate-200"
+        className="lg:hidden fixed top-5 left-5 z-30 p-2 bg-white shadow-md rounded-lg border border-slate-200"
         onClick={() => setIsMobileOpen(true)}
+        aria-label="Buka menu navigasi"
       >
         <Menu className="w-5 h-5 text-slate-600" />
       </button>
@@ -210,26 +193,23 @@ export default function DashboardLayout({
       {/* overlay sidebar */}
       {isMobileOpen && (
         <button
-          className="inset-0 fixed z-10 bg-black/50"
+          className="inset-0 fixed z-40 bg-black/50"
           onClick={() => setIsMobileOpen(false)}
+          aria-label="Tutup menu navigasi"
         />
       )}
 
       {/* Sidebar */}
       <aside
         className={`fixed z-50 h-full bg-[#0F172A] text-slate-300 transition-all duration-300 ease-in-out flex flex-col border-r border-slate-800
-          ${isCollapsed ? "w-20" : "w-70"} 
+          ${isCollapsed ? "w-20" : "w-70"}
           ${isMobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
         `}
       >
         {/* Header Sidebar */}
         <div className="h-20 flex items-center px-6 shrink-0">
           <div className="flex items-center gap-3">
-            <img
-              src="/images/logo.png"
-              alt="gambar logo sidotec"
-              className="w-8 h-8 object-cover"
-            />
+            <LogoSidotec className="w-9 h-9 shrink-0" />
             {!isCollapsed && (
               <span className="text-xl font-bold tracking-tight text-white">
                 SIDOTEC
@@ -249,13 +229,11 @@ export default function DashboardLayout({
               )}
 
               <ul className="space-y-1.5">
-                {group.items.map((item: any) => {
+                {group.items.map((item: MenuItem) => {
                   const hasChildren = !!item.children;
                   const isParentActive =
                     hasChildren &&
-                    item.children?.some((c: any) =>
-                      pathname.startsWith(c.path),
-                    );
+                    item.children?.some((c) => pathname.startsWith(c.path));
                   const isActive = !hasChildren && pathname === item.path;
                   const isDropdownOpen = openDropdown === item.name;
                   const Icon = item.icon;
@@ -266,6 +244,7 @@ export default function DashboardLayout({
                         <>
                           <button
                             onClick={() => toggleDropdown(item.name)}
+                            aria-expanded={isDropdownOpen}
                             className={`flex items-center justify-between w-full rounded-xl transition-all duration-200 group
                               ${isCollapsed ? "justify-center p-3" : "px-4 py-3"}
                               ${isParentActive || isDropdownOpen ? "text-white" : "text-slate-400 hover:text-slate-100 hover:bg-white/5"}
@@ -291,16 +270,16 @@ export default function DashboardLayout({
                           {/* Children Menu dengan Garis Vertikal */}
                           {isDropdownOpen && !isCollapsed && (
                             <div className="ml-6.5 mt-1 relative">
-                              {/* Garis Vertikal */}
                               <div className="absolute left-0 top-0 bottom-2 w-px bg-slate-700" />
 
                               <ul className="space-y-1 py-1">
-                                {item.children?.map((child: any) => {
+                                {item.children?.map((child) => {
                                   const isChildActive = pathname === child.path;
                                   return (
                                     <li key={child.name} className="relative">
                                       <Link
                                         href={child.path}
+                                        onClick={() => setIsMobileOpen(false)}
                                         className={`flex items-center gap-3 pl-6 pr-4 py-2 text-[13px] transition-all relative
                                           before:content-[''] before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-4 before:h-px before:bg-slate-700
                                           ${isChildActive ? "text-sky-400 font-bold" : "text-slate-500 hover:text-slate-200"}
@@ -318,6 +297,7 @@ export default function DashboardLayout({
                       ) : (
                         <Link
                           href={item.path}
+                          onClick={() => setIsMobileOpen(false)}
                           className={`flex items-center rounded-xl transition-all duration-200 group
                             ${isCollapsed ? "justify-center p-3" : "px-4 py-3"}
                             ${isActive ? "bg-sky-600 text-white shadow-lg shadow-sky-600/20 font-semibold" : "text-slate-400 hover:text-slate-100 hover:bg-white/5"}
@@ -327,9 +307,7 @@ export default function DashboardLayout({
                             className={`w-5 h-5 shrink-0 transition-colors ${isActive ? "text-white" : "group-hover:text-white"}`}
                           />
                           {!isCollapsed && (
-                            <span className="text-[13px] ml-3">
-                              {item.name}
-                            </span>
+                            <span className="text-[13px] ml-3">{item.name}</span>
                           )}
                         </Link>
                       )}
@@ -341,19 +319,19 @@ export default function DashboardLayout({
           ))}
         </nav>
 
-        {/* Footer Sidebar yang lebih Clean */}
+        {/* Footer Sidebar */}
         <div className="p-4 bg-[#0F172A] border-t border-slate-800 mt-auto">
           {!isCollapsed ? (
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-3 px-2">
                 <div className="h-9 w-9 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
                   <span className="text-xs font-bold text-sky-400 uppercase">
-                    {user.nama_lengkap.slice(0, 2)}
+                    {(user.nama_lengkap || user.username || "?").slice(0, 2)}
                   </span>
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs font-bold text-white truncate">
-                    {dataRole[user.role.toLowerCase() as keyof typeof dataRole]}
+                    {labelRole}
                   </p>
                   <p className="text-[10px] text-slate-500 truncate">
                     @{user.username}
@@ -384,6 +362,7 @@ export default function DashboardLayout({
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
           className="hidden lg:flex absolute -right-3 top-24 bg-slate-900 border border-slate-700 text-slate-400 rounded-full p-1 hover:text-sky-400 transition-all z-50 shadow-xl"
+          aria-label={isCollapsed ? "Perlebar sidebar" : "Perkecil sidebar"}
         >
           {isCollapsed ? (
             <ChevronRight className="w-3.5 h-3.5" />

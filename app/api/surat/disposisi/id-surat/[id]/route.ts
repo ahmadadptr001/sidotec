@@ -1,26 +1,27 @@
 import { supabase } from "@/config/supabase";
-import { NextResponse } from "next/server";
+import { apiCatch, apiFail, apiOk, assertNoDbError, requireUser } from "@/lib/api";
 
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const id = (await context.params).id;
-  if (!id) NextResponse.json({ status: 500, reason: "Data tidak lengkap" });
-
   try {
+    await requireUser();
+
+    const id = (await context.params).id;
+    // Sebelumnya cabang ini membuat NextResponse tanpa `return`, jadi request
+    // tanpa id tetap diteruskan ke query.
+    if (!id) return apiFail(400, "ID surat harus disertakan");
+
     const { data, error } = await supabase
       .from("disposisi")
       .select()
-      .eq("surat_id", id);
+      .eq("surat_id", id)
+      .order("id", { ascending: true });
 
-    if (error) {
-      console.error(error);
-      return NextResponse.json({ status: 401, reason: error.message });
-    }
-
-    return NextResponse.json({ status: 200, data });
-  } catch (err: any) {
-    return NextResponse.json({ status: 500, reason: err.message });
+    assertNoDbError(error, "disposisi.byIdSurat");
+    return apiOk(data ?? []);
+  } catch (err) {
+    return apiCatch(err, "disposisi.byIdSurat");
   }
 }

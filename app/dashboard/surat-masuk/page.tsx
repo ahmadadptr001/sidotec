@@ -5,57 +5,35 @@ import { useRouter } from "next/navigation";
 import {
   Plus,
   Search,
-  X,
   Printer,
   Edit3,
   Trash2,
   Info,
   Forward,
-  FileText,
-  Calendar,
-  User,
-  Hash,
-  ExternalLink,
-  Tag,
   ChevronLeft,
   ChevronRight,
-  Image as ImageIcon,
 } from "lucide-react";
 import Breadcrumbs from "@/components/ui/Breadcrumbs";
 import { ambilDataSurat, hapusDataSurat } from "@/services/surat";
 import DetailSurat from "@/components/ui/DetailSurat";
 import Swal from "sweetalert2";
+import { useUser } from "@/context/UserProvider";
+import { bukaJendelaCetak, htmlLembarSurat } from "@/lib/cetak";
+import { formatTanggalSingkat } from "@/lib/format";
+import type { Surat } from "@/lib/tipe";
+import { pesanError } from "@/lib/error";
 
-interface Surat {
-  id: number;
-  asal_surat: string;
-  created_at: string;
-  file: string;
-  indeks_berkas: string;
-  jenis: string;
-  kategori: string;
-  keterangan: string;
-  kode_klasifikasi: string;
-  nomor_agenda: string;
-  nomor_surat: string;
-  ringkasan: string;
-  tanggal: string;
-  tujuan_surat: string | null;
-}
+// Bentuk data surat dipakai bersama dari lib/tipe agar tidak ada dua definisi
+// yang bisa saling menyimpang.
 
 const dataBreadcrumbs = [
-  {
-    name: "dashboard",
-    to: "/dashboard",
-  },
-  {
-    name: "surat masuk",
-    to: "/dashboard/surat-masuk",
-  },
+  { name: "dashboard", to: "/dashboard" },
+  { name: "surat masuk", to: "/dashboard/surat-masuk" },
 ];
 
 export default function SuratMasukPage() {
   const router = useRouter();
+  const { user, instansi } = useUser();
 
   const [data, setData] = useState<Surat[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -69,12 +47,17 @@ export default function SuratMasukPage() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
+      // Tanpa argumen limit: seluruh surat masuk diambil, sehingga pencarian dan
+      // paginasi bekerja atas semua arsip (dulu terbatas 10 data pertama).
       const response = await ambilDataSurat("masuk");
-      if (response && response.data) {
-        setData(response.data);
-      }
+      setData(response?.data ?? []);
     } catch (error) {
       console.error("Gagal mengambil data surat:", error);
+      Swal.fire({
+        title: "Gagal memuat data",
+        text: pesanError(error, "Terjadi kesalahan saat mengambil data surat."),
+        icon: "error",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -84,29 +67,18 @@ export default function SuratMasukPage() {
     fetchData();
   }, []);
 
-  // Reset ke halaman 1 setiap kali query pencarian atau limit berubah
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, itemsPerPage]);
-
   const handlePrint = (item: Surat) => {
-    const printWindow = window.open("", "_blank");
-    if (printWindow) {
-      printWindow.document.write(`
-        <html>
-          <head><title>Print - ${item.nomor_surat}</title></head>
-          <body style="font-family: sans-serif; padding: 40px;">
-            <h2 style="border-bottom: 2px solid #333; padding-bottom: 10px;">ARSIP SURAT MASUK</h2>
-            <p><strong>Nomor:</strong> ${item.nomor_surat}</p>
-            <p><strong>Ringkasan / Perihal:</strong> ${item.ringkasan}</p>
-            <p><strong>Pengirim:</strong> ${item.asal_surat}</p>
-            <p><strong>Tanggal:</strong> ${item.tanggal}</p>
-            <p><strong>Kategori:</strong> ${item.kategori} (${item.kode_klasifikasi})</p>
-          </body>
-        </html>
-      `);
-      printWindow.document.close();
-      printWindow.print();
+    const berhasil = bukaJendelaCetak(
+      `Lembar Pengantar Surat Masuk - ${item.nomor_surat}`,
+      htmlLembarSurat(item, instansi?.[0] ?? null, user),
+    );
+
+    if (!berhasil) {
+      Swal.fire({
+        title: "Jendela cetak diblokir",
+        text: "Izinkan pop-up untuk situs ini agar dokumen dapat dicetak.",
+        icon: "warning",
+      });
     }
   };
 
@@ -115,69 +87,67 @@ export default function SuratMasukPage() {
 
     Swal.fire({
       title: "Hapus Surat Ini?",
-      text: `Anda yakin ingin menghapus surat ini? Tindakan ini permanen.`,
+      text: "Surat beserta seluruh disposisi dan lampirannya akan dihapus permanen.",
+      icon: "warning",
       confirmButtonText: "Saya Yakin",
       cancelButtonText: "Batal",
       showCancelButton: true,
       confirmButtonColor: "#dc2626",
       cancelButtonColor: "gray",
     }).then(async (konfirmasiUser) => {
-      if (konfirmasiUser.isConfirmed) {
-        Swal.fire({
-          title: "Loading...",
-          text: "Mohon tunggu sebentar",
-          icon: "info",
-          didOpen: () => {
-            Swal.showLoading();
-          },
-        });
+      if (!konfirmasiUser.isConfirmed) return;
 
-        try {
-          const response = await hapusDataSurat(id);
-          if (response.message) {
-            setData(data.filter((d) => d.id !== Number(id)));
-            Swal.close();
-            Swal.fire({
-              title: response.message,
-              icon: "success",
-            });
-          }
-        } catch (err: any) {
-          Swal.close();
-          Swal.fire({
-            title: "Terjadi Kesalahan!",
-            text: err.message,
-            icon: "error",
-          });
-        }
+      Swal.fire({
+        title: "Menghapus...",
+        text: "Mohon tunggu sebentar",
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading(),
+      });
+
+      try {
+        const response = await hapusDataSurat(id);
+        // Pembaruan fungsional agar tidak memakai snapshot state yang lama.
+        setData((sebelumnya) => sebelumnya.filter((d) => d.id !== Number(id)));
+        Swal.close();
+        Swal.fire({
+          title: response?.message || "Surat berhasil dihapus",
+          icon: "success",
+        });
+      } catch (err) {
+        Swal.close();
+        Swal.fire({
+          title: "Terjadi Kesalahan!",
+          text: pesanError(err),
+          icon: "error",
+        });
       }
     });
   };
 
-  const filteredData = data.filter(
-    (item) =>
-      item.nomor_surat.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.ringkasan.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.asal_surat.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
+  const filteredData = useMemo(() => {
+    const kunci = searchQuery.toLowerCase().trim();
+    if (!kunci) return data;
+    return data.filter((item) =>
+      [item.nomor_surat, item.ringkasan, item.asal_surat, item.nomor_agenda]
+        .filter(Boolean)
+        .some((nilai) => String(nilai).toLowerCase().includes(kunci)),
+    );
+  }, [data, searchQuery]);
 
-  // Kalkulasi total halaman
   const totalPages = Math.ceil(filteredData.length / itemsPerPage) || 1;
 
-  const paginatedData = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return filteredData.slice(start, start + itemsPerPage);
-  }, [filteredData, currentPage, itemsPerPage]);
+  // Dijepit saat render, bukan direset lewat useEffect: hasil pencarian yang
+  // menyusut tidak lagi memicu render tambahan hanya untuk mengatur ulang halaman.
+  const halamanAktif = Math.min(currentPage, totalPages);
 
-  // Fungsi utilitas untuk mengecek apakah file berupa gambar
-  const isImageFile = (url: string) => {
-    if (!url) return false;
-    return /\.(jpeg|jpg|gif|png|webp|svg)(\?.*)?$/i.test(url);
-  };
+  const paginatedData = useMemo(() => {
+    const start = (halamanAktif - 1) * itemsPerPage;
+    return filteredData.slice(start, start + itemsPerPage);
+  }, [filteredData, halamanAktif, itemsPerPage]);
 
   return (
     <div className="relative overflow-x-hidden min-h-screen">
-      <div className={`space-y-3 transition-all duration-500`}>
+      <div className="space-y-3 transition-all duration-500">
         {/* Header */}
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-bold text-slate-900 tracking-tight">
@@ -191,7 +161,6 @@ export default function SuratMasukPage() {
           </button>
         </div>
 
-        {/* Breadcrumbs */}
         <Breadcrumbs data={dataBreadcrumbs} />
 
         {/* Search Bar & Limit Dropdown */}
@@ -202,14 +171,13 @@ export default function SuratMasukPage() {
             </div>
             <input
               type="text"
-              placeholder="Cari nomor, ringkasan, atau pengirim..."
+              placeholder="Cari nomor agenda, nomor surat, ringkasan, atau pengirim..."
               className="flex-1 px-2 py-3 text-sm outline-none"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
 
-          {/* Dropdown Limit */}
           <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-md px-3 py-2 sm:py-0 text-sm">
             <label htmlFor="limit" className="text-slate-500 font-medium">
               Tampilkan:
@@ -238,9 +206,7 @@ export default function SuratMasukPage() {
                   <th className="px-6 py-4 font-semibold hidden md:table-cell">
                     Pengirim
                   </th>
-                  <th className="px-6 py-4 text-right font-semibold">
-                    Tindakan
-                  </th>
+                  <th className="px-6 py-4 text-right font-semibold">Tindakan</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -261,10 +227,7 @@ export default function SuratMasukPage() {
                   ))
                 ) : paginatedData.length === 0 ? (
                   <tr>
-                    <td
-                      colSpan={3}
-                      className="px-6 py-8 text-center text-slate-400"
-                    >
+                    <td colSpan={3} className="px-6 py-8 text-center text-slate-400">
                       Tidak ada data surat ditemukan.
                     </td>
                   </tr>
@@ -279,7 +242,7 @@ export default function SuratMasukPage() {
                           {item.ringkasan}
                         </div>
                         <div className="text-[11px] font-mono text-slate-400 mt-1 uppercase tracking-tighter truncate">
-                          {item.nomor_surat}
+                          {item.nomor_surat} &middot; {formatTanggalSingkat(item.tanggal)}
                         </div>
                       </td>
                       <td className="px-6 py-4 text-slate-600 font-medium hidden md:table-cell">
@@ -288,13 +251,11 @@ export default function SuratMasukPage() {
                       <td className="px-6 py-4">
                         <div className="flex justify-end items-center gap-2">
                           <button
-                            onClick={() => {
+                            onClick={() =>
                               router.push(
-                                "/dashboard/surat-masuk/" +
-                                  item.id +
-                                  "/disposisi",
-                              );
-                            }}
+                                `/dashboard/surat-masuk/${item.id}/disposisi`,
+                              )
+                            }
                             className="px-3 flex flex-col items-center gap-1 py-1.5 bg-slate-400 text-white rounded-md text-[11px] font-bold uppercase tracking-wider hover:bg-slate-500 hover:text-slate-100 transition-all"
                           >
                             <Forward size={15} />
@@ -318,9 +279,7 @@ export default function SuratMasukPage() {
                           <div className="h-4 w-px bg-slate-200 mx-1 hidden sm:block" />
                           <button
                             onClick={() =>
-                              router.push(
-                                `/dashboard/surat-masuk/edit/${item.id}`,
-                              )
+                              router.push(`/dashboard/surat-masuk/edit/${item.id}`)
                             }
                             className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"
                             title="Ubah"
@@ -328,9 +287,7 @@ export default function SuratMasukPage() {
                             <Edit3 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() =>
-                              handleHapusDataSurat(String(item.id))
-                            }
+                            onClick={() => handleHapusDataSurat(String(item.id))}
                             className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
                             title="Hapus"
                           >
@@ -351,11 +308,11 @@ export default function SuratMasukPage() {
               <div className="text-sm text-slate-500 font-medium">
                 Menampilkan{" "}
                 <span className="font-bold text-slate-800">
-                  {(currentPage - 1) * itemsPerPage + 1}
+                  {(halamanAktif - 1) * itemsPerPage + 1}
                 </span>{" "}
                 -{" "}
                 <span className="font-bold text-slate-800">
-                  {Math.min(currentPage * itemsPerPage, filteredData.length)}
+                  {Math.min(halamanAktif * itemsPerPage, filteredData.length)}
                 </span>{" "}
                 dari{" "}
                 <span className="font-bold text-slate-800">
@@ -365,23 +322,23 @@ export default function SuratMasukPage() {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() =>
-                    setCurrentPage((prev) => Math.max(prev - 1, 1))
-                  }
-                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(Math.max(halamanAktif - 1, 1))}
+                  disabled={halamanAktif === 1}
                   className="p-2 rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  aria-label="Halaman sebelumnya"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
                 <div className="text-sm font-semibold text-slate-700 px-2">
-                  Halaman {currentPage} / {totalPages}
+                  Halaman {halamanAktif} / {totalPages}
                 </div>
                 <button
                   onClick={() =>
-                    setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                    setCurrentPage(Math.min(halamanAktif + 1, totalPages))
                   }
-                  disabled={currentPage === totalPages}
+                  disabled={halamanAktif === totalPages}
                   className="p-2 rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  aria-label="Halaman berikutnya"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -398,7 +355,11 @@ export default function SuratMasukPage() {
         }`}
       >
         {viewDetail && (
-          <DetailSurat item={viewDetail} setViewDetail={setViewDetail} />
+          <DetailSurat
+            item={viewDetail}
+            setViewDetail={setViewDetail}
+            onPrint={handlePrint}
+          />
         )}
       </aside>
     </div>
