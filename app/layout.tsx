@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { UserProvider } from "@/context/UserProvider";
 
+// Judul & deskripsi mengikuti judul tugas akhir pada halaman sampul.
 export const metadata: Metadata = {
-  title: "SIDOTEC | Sistem Informasi Dokumentasi Indotec",
+  title: "SIDOTEC | Politeknik Indotec Kendari",
   description:
-    "Rancang Bangun Sistem Informasi Pengelolaan Surat Masuk dan Surat keluar di Politeknik Indotec kendari",
+    "Rancang Bangun Sistem Informasi Pengelolaan Surat Masuk dan Surat Keluar di Politeknik Indotec Kendari Berbasis Web",
+  applicationName: "SIDOTEC",
 };
 
 export default function RootLayout({
@@ -14,7 +16,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={` h-full antialiased`}>
+    <html lang="id" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
         <UserProvider>{children}</UserProvider>
       </body>

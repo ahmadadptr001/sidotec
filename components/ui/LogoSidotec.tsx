@@ -1,32 +1,37 @@
-import { LOGO_INNER, LOGO_INNER_CETAK, LOGO_VIEWBOX } from "@/lib/logo";
+import Image from "next/image";
+import { LOGO_ALT, LOGO_PATH } from "@/lib/logo";
 
 interface LogoSidotecProps {
+  /** Kelas Tailwind untuk ukuran tampil, mis. "w-9 h-9". */
   className?: string;
-  varian?: "warna" | "cetak";
-  title?: string;
+  /** Sisi bitmap yang diminta ke pengoptimal gambar Next.js. */
+  ukuran?: number;
+  /** Prioritaskan pemuatan (dipakai pada logo besar di halaman masuk). */
+  prioritas?: boolean;
+  alt?: string;
 }
 
 /**
- * Lambang SIDOTEC. Bentuknya diambil dari `lib/logo.ts` supaya identik dengan
- * ikon tab browser (`app/icon.svg`) dan kop surat pada hasil cetak.
+ * Lambang Politeknik Indotec Kendari.
  *
- * `dangerouslySetInnerHTML` di sini aman: isinya konstanta statis dari kode,
- * bukan data dari pengguna atau database.
+ * Berkas gambarnya berada di `public/` (lihat `lib/logo.ts`) sehingga lambang
+ * yang sama juga terpakai pada ikon tab browser dan kop surat hasil cetak.
  */
 export default function LogoSidotec({
   className = "w-8 h-8",
-  varian = "warna",
-  title = "Logo SIDOTEC",
+  ukuran = 96,
+  prioritas = false,
+  alt = LOGO_ALT,
 }: LogoSidotecProps) {
   return (
-    <svg
-      viewBox={LOGO_VIEWBOX}
-      className={className}
-      role="img"
-      aria-label={title}
-      dangerouslySetInnerHTML={{
-        __html: varian === "warna" ? LOGO_INNER : LOGO_INNER_CETAK,
-      }}
+    <Image
+      src={LOGO_PATH}
+      alt={alt}
+      width={ukuran}
+      height={ukuran}
+      priority={prioritas}
+      // Logo persegi: object-contain menjaga proporsinya pada ukuran apa pun.
+      className={`${className} object-contain`}
     />
   );
 }

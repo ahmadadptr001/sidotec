@@ -85,12 +85,19 @@ export default function LoginSidotec() {
           {/* Brand Identity */}
           <div className="flex flex-col items-center mb-10">
             {/* Lambang yang sama dipakai di sidebar, kop surat cetak, dan ikon tab browser. */}
-            <LogoSidotec className="w-24 h-24 drop-shadow-sm" />
+            <LogoSidotec
+              className="w-24 h-24 drop-shadow-sm"
+              ukuran={192}
+              prioritas
+            />
 
             <h1 className="text-4xl font-bold mt-4 text-slate-900 tracking-tighter">
               SIDOTEC
             </h1>
-            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-[0.2em] mt-1 text-center">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-[0.15em] mt-1 text-center">
+              Politeknik Indotec Kendari
+            </p>
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-[0.2em] mt-1 text-center">
               Sistem Informasi Dokumentasi Surat
             </p>
             <div className="h-1 w-12 bg-sky-500 rounded-full mt-3" />

@@ -1,5 +1,5 @@
 import { formatTanggalIndonesia, formatTanggalSingkat, tebakKota } from "@/lib/format";
-import { logoSvgMarkup } from "@/lib/logo";
+import { NAMA_INSTANSI_BAWAAN, logoImgMarkup } from "@/lib/logo";
 
 export interface InstansiCetak {
   nama_instansi?: string | null;
@@ -69,8 +69,8 @@ const CSS_CETAK = `
 
   /* --- KOP SURAT --- */
   .kop { display: flex; align-items: center; gap: 14px; }
-  .kop-logo { width: 74px; flex-shrink: 0; }
-  .kop-logo svg { width: 100%; height: auto; display: block; }
+  .kop-logo { width: 84px; flex-shrink: 0; }
+  .kop-logo img { width: 100%; height: auto; display: block; }
   .kop-teks { flex: 1; text-align: center; }
   .kop-instansi {
     margin: 0;
@@ -163,7 +163,7 @@ const CSS_CETAK = `
 `;
 
 function kopSuratHtml(instansi: InstansiCetak | null | undefined): string {
-  const nama = instansi?.nama_instansi?.trim() || "NAMA INSTANSI BELUM DIISI";
+  const nama = instansi?.nama_instansi?.trim() || NAMA_INSTANSI_BAWAAN;
   const baris: string[] = [];
 
   if (instansi?.status || instansi?.akreditasi) {
@@ -188,7 +188,7 @@ function kopSuratHtml(instansi: InstansiCetak | null | undefined): string {
 
   return `
     <div class="kop">
-      <div class="kop-logo">${logoSvgMarkup(74, "cetak")}</div>
+      <div class="kop-logo">${logoImgMarkup(84)}</div>
       <div class="kop-teks">
         <h1 class="kop-instansi">${escapeHtml(nama)}</h1>
         ${baris.join("\n        ")}
@@ -360,10 +360,21 @@ export function bukaJendelaCetak(judul: string, isi: string): boolean {
 <body>
 ${isi}
 <script>
-  window.addEventListener('load', function () {
-    window.focus();
-    window.print();
-  });
+  // Dialog cetak baru dibuka setelah logo kop surat selesai dimuat, supaya kop
+  // tidak tercetak kosong. Ada batas waktu agar gambar yang gagal dimuat tidak
+  // menggantung jendela cetak.
+  (function () {
+    var sudah = false;
+    function cetak() {
+      if (sudah) return;
+      sudah = true;
+      window.focus();
+      window.print();
+    }
+    if (document.readyState === 'complete') cetak();
+    else window.addEventListener('load', cetak);
+    setTimeout(cetak, 3000);
+  })();
 </script>
 </body>
 </html>`);
