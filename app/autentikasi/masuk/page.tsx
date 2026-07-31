@@ -2,9 +2,19 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { User, Lock, Eye, EyeOff, Shield, ArrowRight } from "lucide-react";
+import { User, Lock, Eye, EyeOff } from "lucide-react";
 import { masuk } from "@/services/user";
 import Swal from "sweetalert2";
+import LogoSidotec from "@/components/ui/LogoSidotec";
+import { pesanError } from "@/lib/error";
+
+/** Hanya menerima path internal, supaya ?lanjut= tidak bisa dipakai open redirect. */
+function tujuanSetelahMasuk(): string {
+  if (typeof window === "undefined") return "/dashboard";
+  const lanjut = new URLSearchParams(window.location.search).get("lanjut");
+  if (lanjut && lanjut.startsWith("/") && !lanjut.startsWith("//")) return lanjut;
+  return "/dashboard";
+}
 
 export default function LoginSidotec() {
   const router = useRouter();
@@ -15,36 +25,40 @@ export default function LoginSidotec() {
     password: "",
   });
 
-  const handleLogin = async (e: React.SubmitEvent) => {
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+
+    // Pemeriksaan dilakukan SEBELUM setLoading, agar tombol tidak terkunci
+    // pada keadaan "Sedang memproses..." tanpa ada permintaan yang berjalan.
+    if (!formData.username || !formData.password) {
+      Swal.fire({
+        title: "Data belum lengkap",
+        text: "Isi identitas pengguna dan kata sandi terlebih dahulu.",
+        icon: "warning",
+      });
+      return;
+    }
+
     setLoading(true);
-    if (!formData.username || !formData.password) return;
-
     try {
-      const data = await masuk(formData);
+      await masuk(formData);
 
-      if (data?.data) {
-        setLoading(false);
-        Swal.fire({
-          title: "Login Berhasil!",
-          text: "Anda akan diarahkan ke halaman dashboard",
-          icon: "success",
-        }).then((action) => {
-          if (action.isConfirmed) {
-            router.replace("/dashboard");
-          }
-        });
-        return;
-      }
+      await Swal.fire({
+        title: "Login Berhasil!",
+        text: "Anda akan diarahkan ke halaman dashboard",
+        icon: "success",
+        timer: 1200,
+        timerProgressBar: true,
+        showConfirmButton: false,
+      });
+      router.replace(tujuanSetelahMasuk());
+    } catch (err) {
       setLoading(false);
       Swal.fire({
         title: "Login Gagal!",
-        text: "Kredensial tidak valid",
+        text: pesanError(err, "Kredensial tidak valid"),
         icon: "error",
       });
-    } catch (err) {
-      setLoading(false);
-      console.error(err);
     }
   };
 
@@ -70,35 +84,16 @@ export default function LoginSidotec() {
         <div className="bg-white rounded-lg shadow-2xl p-10 md:p-12 border border-slate-300">
           {/* Brand Identity */}
           <div className="flex flex-col items-center mb-10">
-            <svg
-              width="100"
-              height="100"
-              viewBox="0 0 200 200"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <rect width="200" height="200" rx="40" fill="#F0F9FF" />
+            {/* Lambang yang sama dipakai di sidebar, kop surat cetak, dan ikon tab browser. */}
+            <LogoSidotec className="w-24 h-24 drop-shadow-sm" />
 
-              <path
-                d="M60 70C60 64.4772 64.4772 60 70 60H130C135.523 60 140 64.4772 140 70V90H60V70Z"
-                fill="#7DD3FC"
-              />
-
-              <path
-                d="M60 90H120C125.523 90 130 94.4772 130 100V110C130 115.523 125.523 120 120 120H80C74.4772 120 70 124.477 70 130V140H140"
-                stroke="#0EA5E9"
-                strokeWidth="12"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-
-              <circle cx="140" cy="140" r="8" fill="#0284C7" />
-            </svg>
-
-            <h1 className="text-4xl font-bold mt-2 text-slate-900 tracking-tighter">
+            <h1 className="text-4xl font-bold mt-4 text-slate-900 tracking-tighter">
               SIDOTEC
             </h1>
-            <div className="h-1 w-12 bg-sky-500 rounded-full mt-2" />
+            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-[0.2em] mt-1 text-center">
+              Sistem Informasi Dokumentasi Surat
+            </p>
+            <div className="h-1 w-12 bg-sky-500 rounded-full mt-3" />
           </div>
 
           {/* Login Form */}
@@ -154,12 +149,8 @@ export default function LoginSidotec() {
 
             <button
               type="submit"
-              style={{
-                backgroundColor: loading
-                  ? "var(--color-sky-700)"
-                  : "var(--color-sky-500)",
-              }}
-              className="w-full bg-sky-500 hover:bg-sky-600 text-white py-4 rounded-2xl font-bold text-xs uppercase tracking-[0.2em] shadow-lg shadow-sky-500/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+              disabled={loading}
+              className="w-full bg-sky-500 hover:bg-sky-600 disabled:bg-sky-700 disabled:cursor-not-allowed text-white py-4 rounded-2xl font-bold text-xs uppercase tracking-[0.2em] shadow-lg shadow-sky-500/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
             >
               {loading ? "Sedang memproses..." : "Masuk"}
             </button>

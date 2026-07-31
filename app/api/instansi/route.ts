@@ -1,16 +1,18 @@
 import { supabase } from "@/config/supabase";
-import { NextResponse } from "next/server";
+import { apiCatch, apiOk, assertNoDbError, requireUser } from "@/lib/api";
 
 export async function GET() {
   try {
-    const { data, error } = await supabase.from("instansi").select();
-    if (error) {
-      console.error(error);
-      return NextResponse.json({ status: 401, reason: error.message });
-    }
+    await requireUser();
 
-    return NextResponse.json({ status: 200, data });
-  } catch (err: any) {
-    return NextResponse.json({ status: 500, reason: err.message });
+    const { data, error } = await supabase
+      .from("instansi")
+      .select()
+      .order("id", { ascending: true });
+
+    assertNoDbError(error, "instansi.list");
+    return apiOk(data ?? []);
+  } catch (err) {
+    return apiCatch(err, "instansi.list");
   }
 }

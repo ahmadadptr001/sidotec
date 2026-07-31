@@ -6,8 +6,9 @@ import {
 } from "@/services/surat";
 import { ChevronRight, Plus, Edit, Trash2, Loader2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Swal from "sweetalert2";
+import { pesanError } from "@/lib/error";
 
 interface dataSuratProps {
   ringkasan: string;
@@ -35,7 +36,7 @@ export default function DisposisiSuratPage() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Fetch data disposisi yang terkait dengan id surat
-  const fetchDataDisposisi = async () => {
+  const fetchDataDisposisi = useCallback(async () => {
     if (!params.id) return;
     setIsLoading(true);
     try {
@@ -52,11 +53,11 @@ export default function DisposisiSuratPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [params.id]);
 
   useEffect(() => {
     fetchDataDisposisi();
-  }, [params.id]);
+  }, [fetchDataDisposisi]);
 
   // Fungsi untuk menentukan warna badge berdasarkan sifat
   const getBadgeColor = (sifat: string) => {
@@ -118,7 +119,7 @@ export default function DisposisiSuratPage() {
           Swal.fire({
             icon: "error",
             title: "Gagal Menghapus Data",
-            text: err instanceof Error ? err.message : "Terjadi kesalahan",
+            text: err instanceof Error ? pesanError(err) : "Terjadi kesalahan",
           });
         }
       }

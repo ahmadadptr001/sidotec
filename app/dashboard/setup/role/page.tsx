@@ -5,7 +5,6 @@ import {
   Shield,
   Search,
   User,
-  ArrowRight,
   AlertTriangle,
   Save,
   ChevronDown,
@@ -15,16 +14,18 @@ import {
 } from "lucide-react";
 import { ambildataUser, perbaruiDataUser } from "@/services/user"; // Pastikan service ini tersedia
 import Swal from "sweetalert2";
+import type { PenggunaPublik } from "@/lib/tipe";
+import { pesanError } from "@/lib/error";
 
 export default function EditUserPage() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [dataUser, setDataUser] = useState<any[]>([]);
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [dataUser, setDataUser] = useState<PenggunaPublik[]>([]);
+  const [searchResults, setSearchResults] = useState<PenggunaPublik[]>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
   // State untuk user yang sedang diedit
-  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedUser, setSelectedUser] = useState<PenggunaPublik | null>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -71,7 +72,7 @@ export default function EditUserPage() {
     }
   };
 
-  const handleSelectUser = (user: any) => {
+  const handleSelectUser = (user: PenggunaPublik) => {
     // Gunakan spread operator untuk memastikan kita mengedit copy-an datanya
     setSelectedUser({ ...user });
     setSearchQuery("");
@@ -83,7 +84,7 @@ export default function EditUserPage() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
     const { name, value } = e.target;
-    setSelectedUser((prev: any) => ({
+    setSelectedUser((prev) => (prev === null ? prev : {
       ...prev,
       [name]: value,
     }));
@@ -111,15 +112,25 @@ export default function EditUserPage() {
         });
         setLoading(true);
         try {
-          await perbaruiDataUser(selectedUser);
+          // Hanya field profil yang dikirim. Sebelumnya seluruh objek pengguna
+          // (termasuk kolom password) ikut terkirim ke server.
+          await perbaruiDataUser({
+            id: String(selectedUser.id),
+            email: selectedUser.email,
+            username: selectedUser.username,
+            nama_lengkap: selectedUser.nama_lengkap,
+            unit: selectedUser.unit ?? "",
+            jabatan: selectedUser.jabatan ?? "",
+            role: selectedUser.role,
+          });
 
           Swal.close();
           Swal.fire("Berhasil!", "Data pengguna telah diperbarui.", "success");
           ambilData(); // Refresh data master
           setSelectedUser(null); // Tutup form edit
-        } catch (err: any) {
+        } catch (err) {
           Swal.close();
-          Swal.fire("Gagal!", err.message || "Terjadi kesalahan", "error");
+          Swal.fire("Gagal!", pesanError(err, "Terjadi kesalahan"), "error");
         } finally {
           setLoading(false);
         }
@@ -257,7 +268,7 @@ export default function EditUserPage() {
                       <Briefcase className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
                       <input
                         name="unit"
-                        value={selectedUser.unit}
+                        value={selectedUser.unit ?? ""}
                         onChange={handleFieldChange}
                         className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm focus:bg-white focus:border-sky-600 outline-none"
                       />
@@ -270,7 +281,7 @@ export default function EditUserPage() {
                     </label>
                     <input
                       name="jabatan"
-                      value={selectedUser.jabatan}
+                      value={selectedUser.jabatan ?? ""}
                       onChange={handleFieldChange}
                       className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm focus:bg-white focus:border-sky-600 outline-none"
                     />

@@ -1,52 +1,60 @@
 import { supabase } from "@/config/supabase";
-import { NextResponse } from "next/server";
+import {
+  apiCatch,
+  apiFail,
+  apiOk,
+  assertNoDbError,
+  requireSuperadmin,
+} from "@/lib/api";
+import { z } from "zod";
+
+const skema = z.object({
+  nama_instansi: z.string().min(3, "Nama instansi minimal 3 karakter").max(200),
+  status: z.enum(["Negeri", "Swasta", "Kedinasan"], {
+    message: "Pilih status instansi yang valid",
+  }),
+  alamat: z.string().min(10, "Alamat terlalu pendek, mohon lengkapi").max(500),
+  website: z.string().url("Format URL tidak valid"),
+  email: z.string().min(1, "Email wajib diisi").email("Format email tidak valid"),
+  nomor_telpon: z.string().min(6, "Nomor telepon tidak valid").max(30),
+  akreditasi: z.enum(
+    ["Unggul", "A", "Baik Sekali", "B", "Baik", "C", "Belum Terakreditasi"],
+    { message: "Pilih status akreditasi yang valid" },
+  ),
+});
 
 export async function POST(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const id = searchParams.get("id");
-  const payload = await request.json();
-  if (!payload || !id)
-    return NextResponse.json({ status: 401, reason: "Data tidak lengkap" });
-
   try {
-    let data = null;
-    let error = null;
-    // cek kalau data instansi sudah ada atau masih kosong
-    const { data: dataCheck, error: errorCheck } = await supabase
+    await requireSuperadmin();
+
+    const parsed = skema.safeParse(await request.json());
+    if (!parsed.success) {
+      return apiFail(400, parsed.error.issues[0]?.message ?? "Data tidak lengkap");
+    }
+    const payload = parsed.data;
+
+    // Baris instansi ditentukan dari database, bukan dari query string. Dulu id
+    // diambil dari `?id=` yang bisa berisi "undefined" saat tabel masih kosong,
+    // sehingga penyimpanan kedua selalu gagal.
+    const { data: existing, error: errorCheck } = await supabase
       .from("instansi")
-      .select();
+      .select("id")
+      .order("id", { ascending: true })
+      .limit(1)
+      .maybeSingle();
 
-    if (errorCheck) {
-      console.error(errorCheck);
-      return NextResponse.json({ status: 401, reason: errorCheck.message });
-    }
+    assertNoDbError(errorCheck, "instansi.simpan.cek");
 
-    if (dataCheck && dataCheck.length !== 0) {
-      const { data: dataInstansi, error: dataInstansiError } = await supabase
-        .from("instansi")
-        .update(payload)
-        .eq("id", id)
-        .select();
+    const query = existing
+      ? supabase.from("instansi").update(payload).eq("id", existing.id)
+      : supabase.from("instansi").insert(payload);
 
-      error = dataInstansiError;
-      data = dataInstansi;
-    } else {
-      const { data: dataInstansi, error: dataInstansiError } = await supabase
-        .from("instansi")
-        .insert(payload)
-        .select();
+    const { data, error } = await query.select();
+    assertNoDbError(error, "instansi.simpan");
 
-      error = dataInstansiError;
-      data = dataInstansi;
-    }
-
-    if (error) {
-      console.error(error);
-      return NextResponse.json({ status: 401, reason: error.message });
-    }
-
-    return NextResponse.json({ status: 200, data });
-  } catch (err: any) {
-    return NextResponse.json({ status: 500, reason: err.message });
+    // Dikembalikan lengkap dengan id supaya client bisa menyegarkan state-nya.
+    return apiOk(data ?? []);
+  } catch (err) {
+    return apiCatch(err, "instansi.simpan");
   }
 }

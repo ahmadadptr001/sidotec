@@ -1,31 +1,27 @@
 import { supabase } from "@/config/supabase";
-import { NextResponse } from "next/server";
+import { apiCatch, apiFail, apiOk, assertNoDbError, requireUser } from "@/lib/api";
 
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const id = (await context.params).id;
-  if (!id)
-    return NextResponse.json({
-      status: 401,
-      reason: "ID harus disertakan",
-    });
-
   try {
+    await requireUser();
+
+    const id = (await context.params).id;
+    if (!id) return apiFail(400, "ID disposisi harus disertakan");
+
     const { data, error } = await supabase
       .from("disposisi")
       .select()
       .eq("id", id)
-      .single();
+      .maybeSingle();
 
-    if (error) {
-      console.error(error);
-      return NextResponse.json({ status: 401, reason: error.message });
-    }
+    assertNoDbError(error, "disposisi.detail");
+    if (!data) return apiFail(404, "Disposisi tidak ditemukan");
 
-    return NextResponse.json({ status: 200, data });
-  } catch (err: any) {
-    return NextResponse.json({ status: 500, reason: err.message });
+    return apiOk(data);
+  } catch (err) {
+    return apiCatch(err, "disposisi.detail");
   }
 }

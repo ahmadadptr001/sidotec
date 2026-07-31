@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import Swal from "sweetalert2";
 import { daftarAkun } from "@/services/user";
-import { convertSegmentPathToStaticExportFilename } from "next/dist/shared/lib/segment-cache/segment-value-encoding";
+import { pesanError } from "@/lib/error";
 
 // 1. Definisikan Schema Zod
 const formSchema = z.object({
@@ -69,20 +69,11 @@ export default function ModernFormPendaftaran() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validasi data dengan Zod
+    // Validasi dijalankan lebih dulu; dialog loading baru dibuka setelah data
+    // dinyatakan sah, agar tidak sempat berkedip saat form masih salah.
     const result = formSchema.safeParse(formData);
 
-    Swal.fire({
-      title: "Loading...",
-      text: "Mohon tunggu sebentar",
-      allowOutsideClick: false,
-      didOpen: () => {
-        Swal.showLoading();
-      },
-    });
-
     if (!result.success) {
-      // Mapping error dari Zod ke state error
       const fieldErrors: Partial<Record<keyof FormData, string>> = {};
       result.error.issues.forEach((issue) => {
         const path = issue.path[0] as keyof FormData;
@@ -91,28 +82,42 @@ export default function ModernFormPendaftaran() {
         }
       });
       setErrors(fieldErrors);
-      Swal.close();
       return;
     }
 
-    // Jika validasi sukses (Siap dikirim ke database)
-    console.log("Data siap dikirim:", result.data);
-    try {
-      const response = await daftarAkun(result.data);
-      Swal.close();
+    Swal.fire({
+      title: "Menyimpan...",
+      text: "Mohon tunggu sebentar",
+      allowOutsideClick: false,
+      didOpen: () => {
+        Swal.showLoading();
+      },
+    });
 
-      if (response.data) {
-        Swal.fire({
-          icon: "success",
-          title: "Akun berhasil dibuat!",
-          text: "Berhasil menambahkan akun baru @" + result.data.username,
-        });
-      }
-    } catch (err: any) {
+    try {
+      await daftarAkun(result.data);
+      Swal.close();
+      Swal.fire({
+        icon: "success",
+        title: "Akun berhasil dibuat!",
+        text: "Berhasil menambahkan akun baru @" + result.data.username,
+      });
+
+      // Form dikosongkan agar akun berikutnya tidak terkirim dengan data yang sama.
+      setFormData({
+        email: "",
+        username: "",
+        password: "",
+        nama_lengkap: "",
+        unit: "",
+        jabatan: "",
+        role: "staff",
+      });
+    } catch (err) {
       Swal.close();
       Swal.fire({
         title: "Gagal membuat akun!",
-        text: err.message,
+        text: pesanError(err),
         icon: "error",
       });
     }

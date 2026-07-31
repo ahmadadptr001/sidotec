@@ -1,37 +1,24 @@
-import axios from "axios";
+import { http } from "@/services/http";
+import type { BackupData } from "@/lib/tipe";
 
-export async function backupDatabase() {
-  const response = await axios.get("/api/backup", {
+/**
+ * Mengunduh berkas cadangan. Memakai `format=file` supaya server mengirim isi
+ * backup mentah (metadata + tables), bukan pembungkus { status, data } —
+ * bentuk mentah inilah yang bisa dibaca kembali oleh halaman Restore.
+ */
+export async function backupDatabase(): Promise<Blob> {
+  const response = await http.get("/api/backup?format=file", {
     responseType: "blob",
   });
-
-  if (response.status !== 200) {
-    throw new Error("Gagal melakukan backup database");
-  }
-
   return response.data;
 }
 
 export async function getBackupStats() {
-  const response = await axios.get("/api/backup");
-
-  if (response.data?.status !== 200) {
-    throw new Error(
-      response.data?.reason || "Gagal mengambil statistik backup",
-    );
-  }
-
+  const response = await http.get("/api/backup");
   return response.data;
 }
 
-export async function restoreDatabase(backupData: any) {
-  const response = await axios.post("/api/restore", backupData);
-
-  if (response.data?.status !== 200) {
-    throw new Error(
-      response.data?.reason || "Gagal melakukan restore database",
-    );
-  }
-
+export async function restoreDatabase(backupData: BackupData) {
+  const response = await http.post("/api/restore", backupData);
   return response.data;
 }

@@ -1,26 +1,32 @@
 import { supabase } from "@/config/supabase";
+import { apiCatch, apiFail, assertNoDbError, requireSuperadmin } from "@/lib/api";
 import { NextResponse } from "next/server";
 
-export async function GET(
+/** DELETE, bukan GET: penghapusan tidak boleh dipicu dengan membuka URL. */
+export async function DELETE(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const id = (await context.params).id;
-  if (!id)
-    return NextResponse.json({ status: 401, reason: "Data tidak lengkap" });
-
   try {
-    const { error } = await supabase.from("pengguna").delete().eq("id", id);
-    if (error) {
-      console.error(error);
-      return NextResponse.json({ status: 401, reason: error.message });
+    const pelaku = await requireSuperadmin();
+    const id = (await context.params).id;
+
+    if (!id) return apiFail(400, "Data tidak lengkap");
+
+    // Menghapus akun sendiri akan membuat pengguna kehilangan akses; ini juga
+    // sudah dicegah di UI, tetapi harus ditegakkan di server.
+    if (String(pelaku.id) === String(id)) {
+      return apiFail(400, "Anda tidak dapat menghapus akun Anda sendiri");
     }
 
-    return NextResponse.json({
-      status: 200,
-      message: "Berhasil menghapus data pengguna",
-    });
-  } catch (err: any) {
-    return NextResponse.json({ status: 500, reason: err.message });
+    const { error } = await supabase.from("pengguna").delete().eq("id", id);
+    assertNoDbError(error, "autentikasi.hapus");
+
+    return NextResponse.json(
+      { status: 200, message: "Berhasil menghapus data pengguna" },
+      { status: 200 },
+    );
+  } catch (err) {
+    return apiCatch(err, "autentikasi.hapus");
   }
 }

@@ -9,10 +9,10 @@ import {
   Users,
   FileText,
   ArrowRightLeft,
-  Building,
 } from "lucide-react";
 import Swal from "sweetalert2";
 import { backupDatabase, getBackupStats } from "@/services/backup";
+import { pesanError } from "@/lib/error";
 
 interface BackupStats {
   metadata: {
@@ -22,10 +22,10 @@ interface BackupStats {
     description: string;
   };
   tables: {
-    pengguna: any[];
-    surat: any[];
-    disposisi: any[];
-    instansi: any[];
+    pengguna: unknown[];
+    surat: unknown[];
+    disposisi: unknown[];
+    instansi: unknown[];
   };
   statistics: {
     total_pengguna: number;
@@ -65,50 +65,46 @@ export default function DirectBackupPage() {
     setIsBackingUp(true);
 
     try {
-      // Ambil data real dari API
-      const response = await getBackupStats();
+      // Berkas diambil langsung dari endpoint (format=file) sehingga isi yang
+      // tersimpan persis sama dengan yang bisa dibaca halaman Restore.
+      const blob = await backupDatabase();
 
-      if (response?.status !== 200) {
-        throw new Error(response?.reason || "Gagal mengambil data");
-      }
-
-      const backupData = response.data;
-
-      // Jeda proses untuk UX
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Proses Download dengan data real
-      const blob = new Blob([JSON.stringify(backupData, null, 2)], {
-        type: "application/json",
-      });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
 
-      const dateStr = new Date().toISOString().split("T")[0];
-      const timeStr = new Date()
-        .toTimeString()
-        .split(" ")[0]
-        .replace(/:/g, "-");
-      link.download = `SIDOTEC_DB_BACKUP_${dateStr}_${timeStr}.json`;
+      const waktu = new Date();
+      const tanggal = [
+        waktu.getFullYear(),
+        String(waktu.getMonth() + 1).padStart(2, "0"),
+        String(waktu.getDate()).padStart(2, "0"),
+      ].join("-");
+      const jam = [
+        String(waktu.getHours()).padStart(2, "0"),
+        String(waktu.getMinutes()).padStart(2, "0"),
+      ].join("-");
+      link.download = `SIDOTEC_DB_BACKUP_${tanggal}_${jam}.json`;
 
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
+      // Statistik disegarkan agar angka pada kartu selalu terbaru.
+      await fetchStats();
+
       Swal.fire({
         icon: "success",
         title: "Berhasil",
-        text: `Database telah dicadangkan dengan ${backupData.statistics.total_surat} surat, ${backupData.statistics.total_pengguna} pengguna, dan ${backupData.statistics.total_disposisi} disposisi.`,
-        confirmButtonColor: "oklch(58.8% 0.158 241.966)",
+        text: "Berkas cadangan telah diunduh. Simpan di tempat yang aman karena berisi hash kata sandi pengguna.",
+        confirmButtonColor: "#0284c7",
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error("Backup error:", error);
       Swal.fire({
         icon: "error",
         title: "Gagal",
-        text: error.message || "Terjadi kesalahan sistem.",
+        text: pesanError(error, "Terjadi kesalahan sistem."),
       });
     } finally {
       setIsBackingUp(false);
@@ -155,11 +151,40 @@ export default function DirectBackupPage() {
           )}
         </button>
 
-        {/* Security Badge */}
-        <div className="mt-8 flex items-center justify-center gap-2 text-slate-400">
-          <ShieldCheck className="w-4 h-4" />
-          <span className="text-[10px] font-bold uppercase tracking-widest">
-            Secure Encryption Verified
+        {/* Ringkasan isi database — sebelumnya data ini diambil tetapi tidak
+            pernah ditampilkan. */}
+        <div className="mt-8 grid grid-cols-2 gap-3 text-left">
+          {[
+            { label: "Surat Masuk", nilai: stats?.statistics.surat_masuk, icon: ArrowRightLeft },
+            { label: "Surat Keluar", nilai: stats?.statistics.surat_keluar, icon: ArrowRightLeft },
+            { label: "Disposisi", nilai: stats?.statistics.total_disposisi, icon: FileText },
+            { label: "Pengguna", nilai: stats?.statistics.total_pengguna, icon: Users },
+          ].map((item) => (
+            <div
+              key={item.label}
+              className="border border-slate-200 rounded-md p-3 flex items-center gap-3"
+            >
+              <div className="p-2 bg-slate-50 text-slate-500 rounded">
+                <item.icon className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-lg font-bold text-slate-900 leading-none">
+                  {loading ? "…" : (item.nilai ?? 0)}
+                </p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">
+                  {item.label}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Peringatan yang jujur: berkas cadangan TIDAK dienkripsi. */}
+        <div className="mt-6 flex items-start gap-2 text-left text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
+          <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
+          <span className="text-[11px] font-medium leading-snug">
+            Berkas cadangan berupa JSON tanpa enkripsi dan memuat hash kata sandi
+            seluruh pengguna. Simpan pada media yang aman dan jangan dibagikan.
           </span>
         </div>
       </div>

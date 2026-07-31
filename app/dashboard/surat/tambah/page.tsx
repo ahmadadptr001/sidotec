@@ -21,6 +21,7 @@ import {
 import Breadcrumbs from "@/components/ui/Breadcrumbs";
 import Swal from "sweetalert2";
 import { tambahSurat } from "@/services/surat";
+import { pesanError } from "@/lib/error";
 
 // 1. Definisikan Skema Zod
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // Maksimal 5MB
@@ -80,15 +81,10 @@ export default function TambahSuratMasuk() {
 
   // Fungsi Submit Handler
   const onSubmit = async (data: FormData) => {
-    if (!data)
-      Swal.fire({
-        title: "Ada Kesalahan!",
-        text: "Data tidak lengkap",
-        icon: "error",
-      });
-
+    // onSubmit hanya dipanggil setelah skema Zod lolos, jadi pemeriksaan
+    // `if (!data)` yang lama tidak pernah bisa terpenuhi.
     Swal.fire({
-      title: "Loading...",
+      title: "Menyimpan...",
       text: "Mohon tunggu sebentar",
       allowOutsideClick: false,
       didOpen: () => {
@@ -96,30 +92,35 @@ export default function TambahSuratMasuk() {
       },
     });
 
-    // Karena data.file adalah FileList, kita bisa ekstrak file pertamanya untuk FormData API
+    // Karena data.file adalah FileList, ekstrak file pertamanya untuk FormData API
     const file = data.file[0];
-    const payload = { ...data, file };
+
+    // `tujuan_surat` hanya berlaku untuk surat keluar. Tanpa ini, nilai yang
+    // sempat diisi lalu jenisnya diubah ke "masuk" tetap ikut terkirim.
+    const payload = {
+      ...data,
+      file,
+      tujuan_surat: data.jenis === "keluar" ? data.tujuan_surat : null,
+    };
 
     try {
-      const response = await tambahSurat(payload);
-      if (response.data) {
-        Swal.close();
-        Swal.fire({
-          title: "Surat berhasil ditambahkan!",
-          icon: "success",
-        }).then((result) => {
-          if (result.isConfirmed) router.back();
-        });
-        return;
-      }
-
+      await tambahSurat(payload);
       Swal.close();
-    } catch (err: any) {
+      await Swal.fire({
+        title: "Surat berhasil ditambahkan!",
+        icon: "success",
+      });
+      router.push(
+        data.jenis === "keluar"
+          ? "/dashboard/surat-keluar"
+          : "/dashboard/surat-masuk",
+      );
+    } catch (err) {
       Swal.close();
       Swal.fire({
         icon: "error",
         title: "Gagal menambahkan data surat!",
-        text: err.message,
+        text: pesanError(err),
       });
     }
   };

@@ -1,16 +1,21 @@
 import { supabase } from "@/config/supabase";
-import { NextResponse } from "next/server";
+import { apiCatch, apiOk, assertNoDbError, requireSuperadmin } from "@/lib/api";
+import { KOLOM_PENGGUNA_PUBLIK } from "@/lib/tabel";
 
 export async function GET() {
-    try {
-        const {data, error} = await supabase.from('pengguna').select();
-        if (error){
-            console.error(error)
-            return NextResponse.json({status: 401, reason: error.message})
-        }
+  try {
+    await requireSuperadmin();
 
-        return NextResponse.json({status: 200, data})
-    } catch (err: any) {
-        return NextResponse.json({status: 500, reason: err.message})
-    }
+    // Kolom disebut satu per satu: `select()` tanpa argumen sebelumnya ikut
+    // mengirim kolom `password` ke browser.
+    const { data, error } = await supabase
+      .from("pengguna")
+      .select(KOLOM_PENGGUNA_PUBLIK)
+      .order("nama_lengkap", { ascending: true });
+
+    assertNoDbError(error, "user.list");
+    return apiOk(data ?? []);
+  } catch (err) {
+    return apiCatch(err, "user.list");
+  }
 }

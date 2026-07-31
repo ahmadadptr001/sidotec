@@ -1,17 +1,18 @@
 import { supabase } from "@/config/supabase";
-import { NextResponse } from "next/server";
+import { apiCatch, apiOk, assertNoDbError, requireUser } from "@/lib/api";
 
 export async function GET() {
   try {
-    const { data, error } = await supabase.from("disposisi").select();
+    await requireUser();
 
-    if (error) {
-      console.error(error);
-      return NextResponse.json({ status: 401, reason: error.message });
-    }
+    const { data, error } = await supabase
+      .from("disposisi")
+      .select()
+      .order("deadline", { ascending: true });
 
-    return NextResponse.json({ status: 200, data });
-  } catch (err: any) {
-    return NextResponse.json({ status: 500, reason: err.message });
+    assertNoDbError(error, "disposisi.list");
+    return apiOk(data ?? []);
+  } catch (err) {
+    return apiCatch(err, "disposisi.list");
   }
 }

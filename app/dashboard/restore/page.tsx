@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   RotateCcw,
   UploadCloud,
-  Database,
   ShieldAlert,
   FileArchive,
   CheckCircle2,
@@ -18,6 +17,8 @@ import Breadcrumbs from "@/components/ui/Breadcrumbs";
 import { restoreDatabase } from "@/services/backup";
 import Swal from "sweetalert2";
 import { removeSession } from "@/services/user";
+import { pesanError } from "@/lib/error";
+import type { BackupData } from "@/lib/tipe";
 
 const dataBreadcrumbs = [
   {
@@ -30,42 +31,31 @@ const dataBreadcrumbs = [
   },
 ];
 
-interface BackupTables {
-  pengguna?: any[];
-  surat?: any[];
-  disposisi?: any[];
-  instansi?: any[];
-}
-
 export default function RestoreDatabasePage() {
   const router = useRouter();
   const [isRestoring, setIsRestoring] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [backupData, setBackupData] = useState<any>(null);
+  const [backupData, setBackupData] = useState<BackupData | null>(null);
   const [fileError, setFileError] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Validasi format JSON backup
-  const validateBackupData = (data: any): boolean => {
-    if (!data || !data.tables) {
-      return false;
-    }
-    const tables = data.tables;
-    const validTables = ["pengguna", "surat", "disposisi", "instansi"];
+  const validateBackupData = (data: unknown): data is BackupData => {
+    if (typeof data !== "object" || data === null) return false;
+    const tables = (data as { tables?: unknown }).tables;
+    if (typeof tables !== "object" || tables === null) return false;
+
+    const validTables = ["pengguna", "surat", "disposisi", "instansi"] as const;
     for (const key of validTables) {
-      if (tables[key] && !Array.isArray(tables[key])) {
-        return false;
-      }
+      const nilai = (tables as Record<string, unknown>)[key];
+      if (nilai !== undefined && !Array.isArray(nilai)) return false;
     }
     return true;
   };
 
-  // Handle file selection
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  /** Memproses satu berkas, dipakai baik oleh input file maupun drag-and-drop. */
+  const prosesFile = async (file: File) => {
     setFileError("");
 
     // Validasi tipe file - sekarang menerima JSON
@@ -100,7 +90,7 @@ export default function RestoreDatabasePage() {
 
       setSelectedFile(file);
       setBackupData(parsedData);
-    } catch (err) {
+    } catch {
       setFileError("Gagal membaca file. Pastikan file JSON valid.");
       setSelectedFile(null);
       setBackupData(null);
@@ -118,17 +108,25 @@ export default function RestoreDatabasePage() {
     setDragActive(false);
   };
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) await prosesFile(file);
+  };
+
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setDragActive(false);
 
     const file = e.dataTransfer.files?.[0];
-    if (file && fileInputRef.current) {
+    if (!file) return;
+
+    // Berkas diproses langsung, tidak lagi lewat event input palsu.
+    if (fileInputRef.current) {
       const dataTransfer = new DataTransfer();
       dataTransfer.items.add(file);
       fileInputRef.current.files = dataTransfer.files;
-      handleFileChange({ target: { files: dataTransfer.files } } as any);
     }
+    await prosesFile(file);
   };
 
   // Hapus file yang dipilih
@@ -163,7 +161,8 @@ export default function RestoreDatabasePage() {
           <ul class="list-disc pl-4 text-slate-600">
             <li>Semua data saat ini akan dihapus</li>
             <li>Data akan diganti dengan data dari file backup</li>
-            <li>User admin akan dibuat ulang (username: admin, password: admin123)</li>
+            <li>Akun pada file backup dipulihkan beserta kata sandinya</li>
+            <li>Akun darurat <strong>admin / admin123</strong> hanya dibuat bila file backup tidak memuat satu pun pengguna</li>
           </ul>
           <p class="mt-3 font-semibold text-amber-600">Apakah Anda yakin ingin melanjutkan?</p>
         </div>
@@ -181,43 +180,49 @@ export default function RestoreDatabasePage() {
 
     try {
       const response = await restoreDatabase(backupData);
+      const hasil = response?.data;
 
-      if (response.status === 200) {
-        await Swal.fire({
-          icon: "success",
-          title: "Restore Berhasil",
-          html: `
-            <div class="text-left text-sm">
-              <p class="mb-2">Database berhasil dipulihkan!</p>
-              <div class="bg-slate-100 p-3 rounded-lg mt-2">
-                <p class="font-semibold text-slate-700">Data yang dipulihkan:</p>
-                <ul class="list-disc pl-4 mt-1 text-slate-600">
-                  <li>Pengguna: ${response.data?.pengguna || 0} data</li>
-                  <li>Surat: ${response.data?.surat || 0} data</li>
-                  <li>Disposisi: ${response.data?.disposisi || 0} data</li>
-                  <li>Instansi: ${response.data?.instansi || 0} data</li>
-                </ul>
-              </div>
-              <p class="mt-3 text-amber-600 font-medium">
-                Login dengan: admin / admin123
-                atau
-                gunakan akun Anda sebelumnya.
-              </p>
-            </div>
-          `,
-          confirmButtonText: "OK",
-        }).then(async (result) => {
-          if (result.isConfirmed) {
-            await removeSession();
-            router.replace("/");
-          }
-        });
+      const catatan: string[] = [];
+      if (hasil?.disposisi_dilewati > 0) {
+        catatan.push(
+          `${hasil.disposisi_dilewati} disposisi dilewati karena surat induknya tidak ada di file backup.`,
+        );
       }
-    } catch (err: any) {
+      catatan.push(
+        hasil?.admin_darurat_dibuat
+          ? "File backup tidak memuat pengguna, jadi akun darurat <strong>admin / admin123</strong> dibuat. Segera ganti kata sandinya."
+          : "Gunakan akun Anda seperti sebelum proses restore.",
+      );
+
+      await Swal.fire({
+        icon: "success",
+        title: "Restore Berhasil",
+        html: `
+          <div class="text-left text-sm">
+            <p class="mb-2">Database berhasil dipulihkan!</p>
+            <div class="bg-slate-100 p-3 rounded-lg mt-2">
+              <p class="font-semibold text-slate-700">Data yang dipulihkan:</p>
+              <ul class="list-disc pl-4 mt-1 text-slate-600">
+                <li>Pengguna: ${hasil?.pengguna ?? 0} data</li>
+                <li>Surat: ${hasil?.surat ?? 0} data</li>
+                <li>Disposisi: ${hasil?.disposisi ?? 0} data</li>
+                <li>Instansi: ${hasil?.instansi ?? 0} data</li>
+              </ul>
+            </div>
+            <p class="mt-3 text-amber-600 font-medium">${catatan.join(" ")}</p>
+          </div>
+        `,
+        confirmButtonText: "OK",
+      });
+
+      // Sesi lama menunjuk data yang sudah tergantikan, jadi selalu logout.
+      await removeSession();
+      router.replace("/");
+    } catch (err) {
       Swal.fire({
         icon: "error",
         title: "Restore Gagal",
-        text: err.message || "Terjadi kesalahan saat melakukan restore.",
+        text: pesanError(err, "Terjadi kesalahan saat melakukan restore."),
       });
     } finally {
       setIsRestoring(false);

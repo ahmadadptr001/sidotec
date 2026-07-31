@@ -1,55 +1,44 @@
 import { supabase } from "@/config/supabase";
-import { NextResponse } from "next/server";
+import { apiCatch, apiFail, apiOk, requireUser } from "@/lib/api";
+import { removeSuratFile, uploadSuratFile } from "@/lib/storage";
+import { FIELD_SURAT } from "@/lib/tabel";
+import { formDataKeObjek, skemaSurat } from "@/lib/validasi-surat";
 
 export async function POST(request: Request) {
-  const formData = await request.formData();
-
-  if (!formData) {
-    return NextResponse.json({ status: 401, reason: "Data tidak lengkap" });
-  }
-  const file = formData.get("file") as File;
   try {
-    const filename = `${Date.now()}-${file.name}`;
-    // upload file ke storage dulu
-    const { data: dataStorage, error: errorStorage } = await supabase.storage
-      .from("surat")
-      .upload(filename, file);
+    await requireUser();
 
-    // ambil url public file nya
-    const { data: urlPublicFile } = supabase.storage
-      .from("surat")
-      .getPublicUrl(filename);
+    const formData = await request.formData();
 
-    const payload = {
-      nomor_agenda: formData.get("nomor_agenda"),
-      nomor_surat: formData.get("nomor_surat"),
-      jenis: formData.get("jenis"),
-      asal_surat: formData.get("asal_surat"),
-      ringkasan: formData.get("ringkasan"),
-      kode_klasifikasi: formData.get("kode_klasifikasi"),
-      indeks_berkas: formData.get("indeks_berkas"),
-      tanggal: formData.get("tanggal"),
-      keterangan: formData.get("keterangan"),
-      kategori: formData.get("kategori"),
-      file: urlPublicFile.publicUrl,
-      tujuan_surat: formData.get("tujuan_surat"),
-    };
-    if (errorStorage) {
-      console.error(errorStorage);
-      return NextResponse.json({ status: 401, reason: errorStorage.message });
+    // Field divalidasi lebih dulu, sebelum file diunggah, supaya tidak ada
+    // berkas nyangkut di storage ketika datanya ternyata tidak sah.
+    const parsed = skemaSurat.safeParse(formDataKeObjek(formData, FIELD_SURAT));
+    if (!parsed.success) {
+      return apiFail(400, parsed.error.issues[0]?.message ?? "Data tidak lengkap");
     }
+
+    const file = formData.get("file");
+    if (!(file instanceof File)) {
+      return apiFail(400, "File dokumen wajib diunggah");
+    }
+
+    const { path, publicUrl } = await uploadSuratFile(file);
+
     const { data, error } = await supabase
       .from("surat")
-      .insert(payload)
+      .insert({ ...parsed.data, file: publicUrl })
       .select();
 
     if (error) {
-      console.error(error);
-      return NextResponse.json({ status: 401, reason: error.message });
+      // Insert gagal: file yang sudah terunggah dihapus kembali agar tidak
+      // menjadi berkas yatim di bucket.
+      await removeSuratFile(path);
+      console.error("[surat.tambah]", error);
+      return apiFail(400, error.message);
     }
 
-    return NextResponse.json({ status: 200, data });
-  } catch (err: any) {
-    return NextResponse.json({ status: 500, reason: err.message });
+    return apiOk(data);
+  } catch (err) {
+    return apiCatch(err, "surat.tambah");
   }
 }
