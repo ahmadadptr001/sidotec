@@ -21,12 +21,10 @@ interface UserContextValue {
   setInstansi: (instansi: Instansi[] | null) => void;
 }
 
-const UserContext = createContext<UserContextValue>({
-  user: null,
-  instansi: null,
-  setUser: () => {},
-  setInstansi: () => {},
-});
+// null = dipakai di luar <UserProvider>. Dengan nilai bawaan berisi setter
+// kosong, kesalahan seperti itu tidak memunculkan error apa pun — state tidak
+// pernah berubah dan halaman hanya berputar di layar pemuatan selamanya.
+const UserContext = createContext<UserContextValue | null>(null);
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
@@ -40,4 +38,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;
 }
 
-export const useUser = () => useContext(UserContext);
+export const useUser = (): UserContextValue => {
+  const context = useContext(UserContext);
+  if (!context) {
+    throw new Error(
+      "useUser() dipakai di luar <UserProvider>. Pastikan komponen berada di dalam UserProvider pada app/layout.tsx.",
+    );
+  }
+  return context;
+};

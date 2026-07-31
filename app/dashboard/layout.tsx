@@ -27,6 +27,7 @@ import { useUser, type Instansi } from "@/context/UserProvider";
 import { dataRole } from "@/data/role";
 import { ambilDataInstansi } from "@/services/instansi";
 import LogoSidotec from "@/components/ui/LogoSidotec";
+import { pesanError } from "@/lib/error";
 
 interface MenuAnak {
   name: string;
@@ -98,6 +99,9 @@ export default function DashboardLayout({
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [keluar, setKeluar] = useState(false);
+  const [gagalMuat, setGagalMuat] = useState<string | null>(null);
+  const [percobaan, setPercobaan] = useState(0);
+  const [lambat, setLambat] = useState(false);
 
   // Menu dihitung dari role, bukan disalin lewat setState. Menu Sistem &
   // Pengaturan hanya untuk superadmin — sama dengan aturan di proxy.ts, jadi
@@ -118,7 +122,11 @@ export default function DashboardLayout({
         sessi = await session();
       } catch (err) {
         console.error(err);
-        if (!dibatalkan) router.replace("/autentikasi/masuk");
+        // Kegagalan jaringan bukan berarti sesi habis, jadi tampilkan pesan
+        // beserta tombol coba lagi, bukan diam di layar pemuatan.
+        if (!dibatalkan) {
+          setGagalMuat(pesanError(err, "Tidak dapat menghubungi server."));
+        }
         return;
       }
       if (dibatalkan) return;
@@ -153,7 +161,21 @@ export default function DashboardLayout({
     return () => {
       dibatalkan = true;
     };
-  }, [user, keluar, router, setUser, setInstansi]);
+  }, [user, keluar, percobaan, router, setUser, setInstansi]);
+
+  // Penanda "lebih lama dari biasanya", supaya pemuatan yang menggantung tidak
+  // terlihat sama seperti pemuatan yang sedang berjalan normal.
+  useEffect(() => {
+    if (user || gagalMuat) return;
+    const timer = setTimeout(() => setLambat(true), 8000);
+    return () => clearTimeout(timer);
+  }, [user, gagalMuat, percobaan]);
+
+  const cobaLagi = () => {
+    setGagalMuat(null);
+    setLambat(false);
+    setPercobaan((n) => n + 1);
+  };
 
   useEffect(() => {
     document.body.style.overflow = isMobileOpen ? "hidden" : "unset";
@@ -186,9 +208,43 @@ export default function DashboardLayout({
 
   if (!user || !instansi)
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-slate-500">
-        <LogoSidotec className="w-12 h-12 animate-pulse" />
-        <p className="text-sm font-medium">Sedang mengambil data...</p>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-6 text-center">
+        {gagalMuat ? (
+          <>
+            <LogoSidotec className="w-12 h-12 opacity-50" />
+            <div>
+              <p className="font-bold text-slate-800">Gagal memuat dashboard</p>
+              <p className="text-sm text-slate-500 mt-1 max-w-sm">{gagalMuat}</p>
+            </div>
+            <div className="flex flex-wrap gap-3 justify-center">
+              <button
+                onClick={cobaLagi}
+                className="px-6 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
+              >
+                Coba Lagi
+              </button>
+              <button
+                onClick={handleLogout}
+                className="px-6 py-2.5 border border-slate-200 text-slate-500 hover:bg-slate-50 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
+              >
+                Keluar
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <LogoSidotec className="w-12 h-12 animate-pulse" />
+            <p className="text-sm font-medium text-slate-500">
+              Sedang mengambil data...
+            </p>
+            {lambat && (
+              <p className="text-xs text-slate-400 max-w-xs">
+                Ini lebih lama dari biasanya. Periksa koneksi ke server, lalu muat
+                ulang halaman.
+              </p>
+            )}
+          </>
+        )}
       </div>
     );
 

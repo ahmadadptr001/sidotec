@@ -30,7 +30,7 @@ export default function HalamanAwal() {
   // sempat terlihat sebelum pengalihan selesai.
   return (
     <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-50">
-      <LogoSidotec className="w-14 h-14 animate-pulse" />
+      <LogoSidotec className="w-14 h-14 animate-pulse" ukuran={128} prioritas />
       <div className="text-center">
         <p className="text-lg font-bold tracking-tight text-slate-800">SIDOTEC</p>
         <p className="text-xs font-medium text-slate-500 mt-1">
