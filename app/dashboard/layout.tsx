@@ -23,7 +23,7 @@ import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { removeSession, session } from "@/services/user";
-import { useUser } from "@/context/UserProvider";
+import { useUser, type Instansi } from "@/context/UserProvider";
 import { dataRole } from "@/data/role";
 import { ambilDataInstansi } from "@/services/instansi";
 import LogoSidotec from "@/components/ui/LogoSidotec";
@@ -113,25 +113,41 @@ export default function DashboardLayout({
     let dibatalkan = false;
 
     (async () => {
+      let sessi;
       try {
-        const sessi = await session();
-        if (dibatalkan) return;
-
-        if (!sessi.isLogin || !sessi.user) {
-          router.replace("/autentikasi/masuk");
-          return;
-        }
-
-        // Endpoint sesi sekarang mengirim objek pengguna langsung (tanpa
-        // password), jadi tidak perlu JSON.parse(...)[0] lagi.
-        setUser(sessi.user);
-
-        const responseInstansi = await ambilDataInstansi();
-        if (!dibatalkan) setInstansi(responseInstansi.data ?? []);
+        sessi = await session();
       } catch (err) {
         console.error(err);
         if (!dibatalkan) router.replace("/autentikasi/masuk");
+        return;
       }
+      if (dibatalkan) return;
+
+      if (!sessi.isLogin || !sessi.user) {
+        router.replace("/autentikasi/masuk");
+        return;
+      }
+
+      // Data instansi diambil SEBELUM setUser. `user` ada di dependency effect
+      // ini, jadi setUser memicu effect berjalan ulang dan cleanup-nya menandai
+      // proses ini dibatalkan — kalau setUser dipanggil lebih dulu, setInstansi
+      // di bawah akan ikut terlewat dan layout tertahan di layar "mengambil
+      // data" selamanya.
+      let dataInstansi: Instansi[] = [];
+      try {
+        const responseInstansi = await ambilDataInstansi();
+        dataInstansi = responseInstansi.data ?? [];
+      } catch (err) {
+        // Identitas instansi hanya dibutuhkan untuk kop surat cetak, jadi
+        // kegagalan di sini tidak boleh menghalangi seluruh dashboard.
+        console.error("Gagal memuat data instansi:", err);
+      }
+      if (dibatalkan) return;
+
+      // Endpoint sesi sekarang mengirim objek pengguna langsung (tanpa
+      // password), jadi tidak perlu JSON.parse(...)[0] lagi.
+      setInstansi(dataInstansi);
+      setUser(sessi.user);
     })();
 
     return () => {
